@@ -1,0 +1,30 @@
+version: "3.9"
+services:
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    volumes: ["redis-data:/data"]
+    command: redis-server --appendonly yes
+
+  chromadb:
+    image: chromadb/chroma:latest
+    ports: ["8000:8000"]
+    volumes: ["chroma-data:/chroma/chroma"]
+    environment:
+      - IS_PERSISTENT=TRUE
+
+  adonis:
+    build: .
+    depends_on: [redis, chromadb]
+    env_file: .env
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - CHROMA_URL=http://chromadb:8000
+    volumes:
+      - ./adonis-vault:/vault
+      - ./prometheus:/app/prometheus:ro
+    command: ["python", "-c", "import boot_check; boot_check.verify(); import supervisord; supervisord.main()"]
+
+volumes:
+  redis-data:
+  chroma-data:
