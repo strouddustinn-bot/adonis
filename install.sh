@@ -50,5 +50,15 @@ else
 fi
 ok "source ready at $TARGET"
 
+# When invoked via `curl ... | bash`, bash has already consumed stdin, so the
+# wizard's input()/getpass() would hit EOF immediately. Reconnect stdin to
+# the real controlling terminal before handing off to Python.
+if [ ! -t 0 ] && [ -r /dev/tty ]; then
+  exec </dev/tty
+elif [ ! -t 0 ]; then
+  err "no TTY available — re-run with: bash <(curl -fsSL https://raw.githubusercontent.com/strouddustinn-bot/adonis/main/install.sh)"
+  exit 1
+fi
+
 say "Launching the bootstrap wizard..."
 exec python3 bootstrap.py "$@"
