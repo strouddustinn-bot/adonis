@@ -13,7 +13,13 @@ services:
       - IS_PERSISTENT=TRUE
 
   adonis:
-    build: .
+    build:
+      context: .
+      # Build-time only. Some hosts (notably Fedora with firewalld+nftables) don't
+      # MASQUERADE the docker bridge by default, so pip can't reach PyPI from
+      # inside the build container. Using the host network namespace just for
+      # the build avoids that dance; runtime networking is unaffected.
+      network: host
     depends_on: [redis, chromadb]
     env_file: .env
     environment:
