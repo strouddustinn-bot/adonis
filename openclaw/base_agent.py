@@ -39,31 +39,41 @@ class BaseAgent(ABC):
         self.governor = governor
         self.channel  = f"adonis:agent:{self.NAME}"
         self._alive   = True
-        self._check_lock()
 
-    def _check_lock(self):
+    async def _check_lock(self):
         from prometheus.fuse import PrometheusFuse
-        if PrometheusFuse.is_locked(self.redis, self.NAME):
+        if await PrometheusFuse.is_locked(self.redis, self.NAME):
             raise RuntimeError(f"[{self.NAME.upper()}] Agent is locked by Prometheus. Operator release required.")
 
     async def run(self):
         """Main loop — subscribe to Redis channel and dispatch tasks."""
+        await self._check_lock()
         log.info(f"[{self.NAME.upper()}] Starting. Listening on {self.channel}")
         pubsub = self.redis.pubsub()
         await pubsub.subscribe(self.channel)
         async for message in pubsub.listen():
             if not self._alive: break
             if message["type"] != "message": continue
+            task = {}
             try:
                 task = json.loads(message["data"])
                 session_id = task.get("session_id", "unknown")
                 trace_id   = task.get("trace_id", str(uuid.uuid4())[:8])
+                result_key = task.get("result_key")
                 log.debug(f"[{self.NAME.upper()}] Task received: {task.get('type','?')} session={session_id}")
                 result = await self.handle(task, session_id)
                 await self.emit(result, session_id, trace_id)
+                await self._record_outcome(task, result, session_id, trace_id)
+                if result_key:
+                    # Atlas (and the hermes API) poll redis.get(result_key) for the response.
+                    await self.redis.setex(result_key, 60, json.dumps(result))
             except Exception as e:
                 log.error(f"[{self.NAME.upper()}] Error: {e}")
-                await self.emit({"error": str(e), "agent": self.NAME}, task.get("session_id",""), "")
+                err = {"error": str(e), "agent": self.NAME}
+                await self.emit(err, task.get("session_id",""), "")
+                rk = task.get("result_key")
+                if rk:
+                    await self.redis.setex(rk, 60, json.dumps(err))
 
     @abstractmethod
     async def handle(self, task: dict, session_id: str) -> dict:
@@ -102,12 +112,63 @@ class BaseAgent(ABC):
         """Convenience wrapper for direct LLM calls with soul layer injected."""
         system_with_soul = self.governor.persona.inject(system)
         r = await self.llm.messages.create(
-            model=os.getenv("ADONIS_MODEL", "claude-sonnet-4-20250514"),
+            model=os.getenv("ADONIS_MODEL", "claude-sonnet-4-6"),
             max_tokens=max_tokens,
             system=system_with_soul,
             messages=[{"role":"user","content":user}]
         )
         return r.content[0].text
+
+    @property
+    def tools(self):
+        from tools.registry import REGISTRY
+        return REGISTRY
+
+    async def use_tool(self, name: str, args: dict, session_id: str = "") -> dict:
+        """Invoke a registered tool. Result is gated through Prometheus."""
+        return await self.tools.invoke(name, args, agent_name=self.NAME, session_id=session_id, fuse=self.fuse)
+
+    async def _record_outcome(self, task: dict, result: dict, session_id: str, trace_id: str):
+        """Persist a win/loss record so the system can learn what works.
+
+        Wins go to `adonis:wins:{agent}` (capped 500); losses to
+        `adonis:losses:{agent}` (capped 200). Every 10th win is also
+        distilled into the L3 semantic vault so Atlas can retrieve prior
+        winning approaches when decomposing similar goals later.
+        """
+        try:
+            status = (result or {}).get("status", "")
+            is_win = status == "ok"
+            is_loss = status in ("error", "blocked", "timeout", "failed")
+            if not (is_win or is_loss):
+                return
+
+            hint = (task.get("goal") or task.get("content") or task.get("task") or "")[:240]
+            record = {
+                "ts":         datetime.now(timezone.utc).isoformat(),
+                "agent":      self.NAME,
+                "session_id": session_id,
+                "trace_id":   trace_id,
+                "task_type":  task.get("type", ""),
+                "hint":       hint,
+                "result_keys": sorted([k for k in (result or {}).keys() if k not in {"status", "agent"}])[:10],
+            }
+            key = f"adonis:{'wins' if is_win else 'losses'}:{self.NAME}"
+            await self.redis.lpush(key, json.dumps(record))
+            await self.redis.ltrim(key, 0, 499 if is_win else 199)
+
+            if is_win:
+                count = await self.redis.incr(f"adonis:wins:counter:{self.NAME}")
+                if count % 10 == 0:
+                    try:
+                        ctx = self.governor.context
+                        digest = f"AGENT {self.NAME} succeeded at: {hint}\nResult keys: {record['result_keys']}"
+                        await ctx.distil_to_l3(session_id, digest,
+                                               metadata={"agent": self.NAME, "kind": "win"})
+                    except Exception as e:
+                        log.debug(f"[{self.NAME.upper()}] win L3 distil skipped: {e}")
+        except Exception as e:
+            log.warning(f"[{self.NAME.upper()}] outcome record failed: {e}")
 
     def stop(self):
         self._alive = False

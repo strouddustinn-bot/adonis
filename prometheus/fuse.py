@@ -127,4 +127,4 @@ class PrometheusFuse:
         log.critical(f"[FUSE] HARD KILL - {name} locked.")
 
     @staticmethod
-    def is_locked(redis_client, name): return bool(redis_client.exists(f"prometheus:locked:{name}"))
+    async def is_locked(redis_client, name): return bool(await redis_client.exists(f"prometheus:locked:{name}"))
