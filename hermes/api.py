@@ -20,11 +20,15 @@ import os
 import uuid
 from dataclasses import asdict
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 log = logging.getLogger("hermes")
+STATIC_DIR = Path(__file__).parent / "static"
 
 
 class AskIn(BaseModel):
@@ -148,5 +152,19 @@ def build_app(*, llm, redis, fuse, governor, model: str) -> FastAPI:
     @app.get("/ges")
     async def ges():
         return await governor.get_ges_report()
+
+    # ── Web UI ───────────────────────────────────────────────────────────
+    if STATIC_DIR.is_dir():
+        app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+        @app.get("/", include_in_schema=False)
+        async def index():
+            return FileResponse(str(STATIC_DIR / "index.html"))
+
+        @app.get("/ui", include_in_schema=False)
+        async def ui_alias():
+            return RedirectResponse("/")
+    else:
+        log.warning("Web UI assets missing at %s — UI disabled.", STATIC_DIR)
 
     return app
