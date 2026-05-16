@@ -33,6 +33,10 @@ FUSE     = ROOT / "prometheus" / "fuse.py"
 KEYS_DIR = Path.home() / "API Keys chmod 600"
 DEFAULT_PORT = 8088
 
+# Set in main() — True only when we have a real TTY and the user didn't pass -y.
+# When False, ask_yn/ask quietly return their default and ask_secret aborts.
+INTERACTIVE = True
+
 
 # ── tiny output helpers ─────────────────────────────────────────────────────
 def _c(s, code): return f"\033[{code}m{s}\033[0m" if sys.stdout.isatty() else s
@@ -42,14 +46,38 @@ def warn(s):     print(_c(f"  [warn] {s}", "33"))
 def fail(s):     print(_c(f"  [err]  {s}", "31"))
 def hint(s):     print(_c(f"         {s}", "90"))
 def ask(s, default=None):
+    if not INTERACTIVE:
+        hint(f"(non-interactive) {s} -> '{default or ''}'")
+        return default or ""
     suffix = f" [{default}]" if default else ""
-    a = input(_c(f"  ?  {s}{suffix}: ", "35")).strip()
+    try:
+        a = input(_c(f"  ?  {s}{suffix}: ", "35")).strip()
+    except EOFError:
+        warn(f"stdin closed while asking '{s}' — using default '{default or ''}'")
+        return default or ""
     return a or (default or "")
+
 def ask_secret(s):
-    return getpass(_c(f"  ?  {s}: ", "35")).strip()
+    if not INTERACTIVE:
+        fail(f"non-interactive run but '{s}' requires a secret value.")
+        hint("Re-run from a TTY, or pre-populate .env before invoking the wizard.")
+        sys.exit(1)
+    try:
+        return getpass(_c(f"  ?  {s}: ", "35")).strip()
+    except EOFError:
+        fail(f"stdin closed while asking for '{s}'.")
+        sys.exit(1)
+
 def ask_yn(s, default=True):
+    if not INTERACTIVE:
+        hint(f"(non-interactive) {s} -> {'yes' if default else 'no'}")
+        return default
     d = "Y/n" if default else "y/N"
-    a = input(_c(f"  ?  {s} [{d}]: ", "35")).strip().lower()
+    try:
+        a = input(_c(f"  ?  {s} [{d}]: ", "35")).strip().lower()
+    except EOFError:
+        warn(f"stdin closed while asking '{s}' — using default ({'yes' if default else 'no'})")
+        return default
     if not a: return default
     return a in ("y", "yes")
 
@@ -395,12 +423,20 @@ def mode_reset(wipe: bool) -> None:
 
 def main() -> int:
     p = argparse.ArgumentParser(description="Adonis bootstrap + startup wizard")
+    p.add_argument("-y", "--yes", action="store_true",
+                   help="non-interactive: accept defaults for every optional prompt")
     g = p.add_mutually_exclusive_group()
     g.add_argument("--start",  action="store_true", help="skip config, just start the stack")
     g.add_argument("--status", action="store_true", help="probe /health and exit")
     g.add_argument("--reset",  action="store_true", help="stop containers (keep volumes)")
     g.add_argument("--nuke",   action="store_true", help="stop + delete volumes (DESTRUCTIVE)")
     args = p.parse_args()
+
+    global INTERACTIVE
+    INTERACTIVE = sys.stdin.isatty() and not args.yes
+    if not INTERACTIVE:
+        warn("running non-interactively — all optional prompts will accept their defaults.")
+
     try:
         if args.status: mode_status()
         elif args.start: mode_start()
