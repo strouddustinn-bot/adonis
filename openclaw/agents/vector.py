@@ -38,6 +38,8 @@ def _extract_page_summary(html: str) -> dict:
 class VectorAgent(BaseAgent):
     NAME    = "vector"
     DOMAINS = ["leads", "seo", "web", "research", "traffic", "marketing", "search"]
+    # Hits public web/SEO sources; writes nothing.
+    CAPABILITIES = frozenset({"net:http_get", "net:web_search", "time:read"})
 
     async def handle(self, task: dict, session_id: str) -> dict:
         task_type = task.get("type")

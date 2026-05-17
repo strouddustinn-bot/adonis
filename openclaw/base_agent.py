@@ -24,13 +24,19 @@ class BaseAgent(ABC):
         class MyAgent(BaseAgent):
             NAME = "myagent"
             DOMAINS = ["mytask", "something"]
+            CAPABILITIES = frozenset({"net:http_get", "vault:read"})
 
             async def handle(self, task: dict, session_id: str) -> dict:
                 # do work, call self.evaluate_action() before any risky op
                 return {"result": "done", "data": {...}}
+
+    CAPABILITIES is the structural permission set for this agent's tool
+    calls. The tool registry rejects any call to a tool whose required
+    capabilities aren't covered. See tools/capabilities.py for the grammar.
     """
     NAME    = "base"
     DOMAINS = []
+    CAPABILITIES: frozenset[str] = frozenset()
 
     def __init__(self, anthropic_client, redis_client, fuse, governor):
         self.llm      = anthropic_client
@@ -125,8 +131,14 @@ class BaseAgent(ABC):
         return REGISTRY
 
     async def use_tool(self, name: str, args: dict, session_id: str = "") -> dict:
-        """Invoke a registered tool. Result is gated through Prometheus."""
-        return await self.tools.invoke(name, args, agent_name=self.NAME, session_id=session_id, fuse=self.fuse)
+        """Invoke a registered tool, gated by capability tokens + Prometheus."""
+        return await self.tools.invoke(
+            name, args,
+            agent_name=self.NAME,
+            agent_capabilities=self.CAPABILITIES,
+            session_id=session_id,
+            fuse=self.fuse,
+        )
 
     async def _extract_and_upsert(self, fg, task: dict, result: dict, session_id: str, trace_id: str):
         """Background job: extract structured facts from a winning result

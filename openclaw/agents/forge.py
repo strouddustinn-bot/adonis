@@ -33,6 +33,8 @@ STYLE_HINTS = {
 class ForgeAgent(BaseAgent):
     NAME    = "forge"
     DOMAINS = ["content", "writing", "copy", "blog", "post", "article", "creative", "email", "draft"]
+    # Pure LLM output; only needs vault for tone-reference retrieval.
+    CAPABILITIES = frozenset({"vault:read:MEMORY/*", "time:read"})
 
     async def handle(self, task: dict, session_id: str) -> dict:
         task_type = task.get("type", "draft_post")

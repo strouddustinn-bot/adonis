@@ -931,12 +931,55 @@
     const root = $("settings-render");
     root.textContent = "Loading…";
     try {
-      const r = await fetch("/config");
-      const c = await r.json();
-      root.innerHTML = renderSettings(c);
+      const [cfgR, capR, auditR] = await Promise.all([
+        fetch("/config"), fetch("/capabilities"), fetch("/tools/audit?n=20")
+      ]);
+      const c   = await cfgR.json();
+      const cap = await capR.json();
+      const aud = await auditR.json();
+      root.innerHTML = renderSettings(c) + renderCapabilityPanel(cap) + renderToolAuditPanel(aud);
     } catch (e) {
-      root.innerHTML = `<div class="help" style="border-left-color:var(--red);color:var(--red)">Failed to load /config: ${escapeHtml(String(e))}</div>`;
+      root.innerHTML = `<div class="help" style="border-left-color:var(--red);color:var(--red)">Failed to load: ${escapeHtml(String(e))}</div>`;
     }
+  }
+
+  function renderCapabilityPanel(c) {
+    const agents = c.matrix || {};
+    const rows = Object.keys(agents).sort().map(a => {
+      const info = agents[a];
+      return `
+        <div class="panel" style="padding:14px 18px;margin-bottom:10px">
+          <div style="font-family:var(--mono);font-size:13px;color:var(--accent);margin-bottom:6px">${escapeHtml(a)}</div>
+          <div style="font-size:11.5px;color:var(--muted);font-family:var(--mono);margin-bottom:6px">
+            grants: ${(info.capabilities || []).map(x => `<span class="chip">${escapeHtml(x)}</span>`).join(" ") || '<span style="color:var(--muted-2)">none</span>'}
+          </div>
+          <div style="font-size:11.5px;font-family:var(--mono)">
+            ${(info.allowed || []).map(t => `<span class="pill ok" style="margin-right:4px">${escapeHtml(t)}</span>`).join("")}
+            ${(info.blocked || []).map(t => `<span class="pill off" style="margin-right:4px">${escapeHtml(t)}</span>`).join("")}
+          </div>
+        </div>`;
+    }).join("");
+    return `<div class="panel"><h3>Security — capability matrix</h3>${rows}<div class="help">
+      Structural gate, evaluated before the Prometheus fuse. Allowed tools per agent shown in green;
+      denied tools in grey. Grants use the format <code>namespace:action[:resource]</code> — e.g.
+      <code>net:http_get:api.anthropic.com</code> or <code>vault:write:MEMORY/*</code> (fnmatch glob).
+    </div></div>`;
+  }
+
+  function renderToolAuditPanel(rows) {
+    if (!rows || !rows.length) return `<div class="panel"><h3>Tool audit (last 20)</h3><div class="empty-line">no calls yet</div></div>`;
+    const fmt = (r) => {
+      const cls = r.decision === "ok" ? "ok" : (r.decision === "exception" ? "warn" : "bad");
+      const extra = r.missing ? ` missing=${(r.missing||[]).join(",")}` : (r.error ? ` err=${r.error}` : "");
+      return `<div class="fact-row">
+        <span style="color:var(--${cls === 'ok' ? 'green' : (cls==='warn'?'yellow':'red')})">${escapeHtml(r.decision)}</span>
+        <span class="attr">${escapeHtml(r.agent || '?')}</span>
+        <span class="val">${escapeHtml(r.tool || '?')}${escapeHtml(extra)}</span>
+        <span class="conf">${r.elapsed_ms != null ? r.elapsed_ms+'ms' : ''}</span>
+        <span class="src">${escapeHtml((r.ts || '').replace('T',' ').slice(0,19))}</span>
+      </div>`;
+    };
+    return `<div class="panel"><h3>Tool audit (last ${rows.length})</h3>${rows.map(fmt).join("")}</div>`;
   }
 
   function pill(state, label) {

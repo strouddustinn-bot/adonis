@@ -29,6 +29,8 @@ class FailureClass:
 class SmithAgent(BaseAgent):
     NAME    = "smith"
     DOMAINS = ["code","debug","engineering","fix","api","integration","error","bug","script","patch"]
+    # Self-debug: reads vault patch queue; doesn't go out to the network on its own.
+    CAPABILITIES = frozenset({"vault:read:SELF/*", "time:read"})
 
     async def handle(self, task: dict, session_id: str) -> dict:
         task_type = task.get("type","debug")

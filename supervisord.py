@@ -97,6 +97,8 @@ async def _amain() -> int:
     governor.fact_graph = fact_graph  # attach so every agent can reach it via self.governor
 
     register_builtins(obsidian=obsidian)
+    from tools.registry import REGISTRY as _TOOL_REG
+    _TOOL_REG.attach_redis(redis)
     mcp_servers = await attach_mcp_servers()
 
     agents = []

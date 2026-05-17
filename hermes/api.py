@@ -240,6 +240,32 @@ def build_app(*, llm, redis, fuse, governor, model: str) -> FastAPI:
             "agents": agent_names,
         }
 
+    # ── Capabilities + tool audit ────────────────────────────────────────
+    @app.get("/capabilities")
+    async def capabilities_matrix():
+        from tools.registry import REGISTRY
+        from openclaw.agents.atlas    import AtlasAgent
+        from openclaw.agents.forge    import ForgeAgent
+        from openclaw.agents.mirror   import MirrorAgent
+        from openclaw.agents.scout    import ScoutAgent
+        from openclaw.agents.sentinel import SentinelAgent
+        from openclaw.agents.smith    import SmithAgent
+        from openclaw.agents.vector   import VectorAgent
+        agent_caps = {a.NAME: sorted(a.CAPABILITIES) for a in [
+            AtlasAgent, ForgeAgent, MirrorAgent, ScoutAgent,
+            SentinelAgent, SmithAgent, VectorAgent,
+        ]}
+        return {
+            "agents": agent_caps,
+            "tools":  REGISTRY.describe(),
+            "matrix": REGISTRY.capability_matrix(agent_caps),
+        }
+
+    @app.get("/tools/audit")
+    async def tools_audit(n: int = 30):
+        raw = await redis.lrange("tools:audit", 0, max(0, min(n, 500) - 1))
+        return [json.loads(r) for r in raw]
+
     # ── Fact graph (structured memory) ──────────────────────────────────
     def _fg():
         fg = getattr(governor, "fact_graph", None)

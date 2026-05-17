@@ -16,6 +16,8 @@ log = logging.getLogger("atlas")
 class AtlasAgent(BaseAgent):
     NAME    = "atlas"
     DOMAINS = ["orchestration","planning","task","manage","decompose","goal","coordinate","multi"]
+    # Atlas dispatches; it doesn't directly hit external resources.
+    CAPABILITIES = frozenset({"time:read"})
 
     async def handle(self, task: dict, session_id: str) -> dict:
         goal = task.get("goal") or task.get("content","")

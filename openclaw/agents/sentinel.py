@@ -24,6 +24,8 @@ log = logging.getLogger("sentinel")
 class SentinelAgent(BaseAgent):
     NAME    = "sentinel"
     DOMAINS = ["monitor", "health", "alert", "status", "uptime", "check"]
+    # Probes internal services only — no outbound traffic, no vault writes.
+    CAPABILITIES = frozenset({"time:read"})
 
     async def handle(self, task: dict, session_id: str) -> dict:
         task_type = task.get("type", "health")

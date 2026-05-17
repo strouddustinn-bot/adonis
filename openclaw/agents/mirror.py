@@ -31,6 +31,8 @@ BENCHMARK_TASKS = [
 class MirrorAgent(BaseAgent):
     NAME    = "mirror"
     DOMAINS = ["reflect","optimize","improve","benchmark","self","performance","rewrite","deprecat","review"]
+    # Self-improvement: reads + writes the SELF/ vault namespace for proposals.
+    CAPABILITIES = frozenset({"vault:read:SELF/*", "vault:write:SELF/*", "time:read"})
 
     async def handle(self, task: dict, session_id: str) -> dict:
         task_type = task.get("type","mirror_cycle")

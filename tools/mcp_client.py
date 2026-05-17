@@ -158,6 +158,7 @@ async def attach_mcp_servers() -> list[MCPServer]:
                     schema=schema,
                     call=_make_call(),
                     origin=f"mcp:{name}",
+                    required_capabilities=frozenset({f"mcp:{name}"}),
                 ), overwrite=True)
             log.info("MCP server '%s' attached with %d tools.", name, len(tools))
             started.append(srv)

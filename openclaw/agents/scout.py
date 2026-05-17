@@ -26,6 +26,12 @@ TECH_HINTS = {"paper","arxiv","model","algorithm","benchmark","architecture","qu
 class ScoutAgent(BaseAgent):
     NAME    = "scout"
     DOMAINS = ["research", "analysis", "arxiv", "investigate", "study", "sources", "news"]
+    # Reads the open web, persists findings into MEMORY/.
+    CAPABILITIES = frozenset({
+        "net:http_get", "net:web_search", "net:arxiv",
+        "vault:read:MEMORY/*", "vault:write:MEMORY/*",
+        "time:read",
+    })
 
     async def handle(self, task: dict, session_id: str) -> dict:
         query = (task.get("content") or task.get("task") or task.get("goal") or "").strip()
