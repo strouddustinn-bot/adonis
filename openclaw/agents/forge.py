@@ -16,11 +16,31 @@ Task shapes accepted:
 Fallback (any other type, or Atlas-dispatched task): treated as draft_post.
 """
 import logging
+from typing import Optional
 from openclaw.base_agent import BaseAgent
+from openclaw.contracts import Contract, ContractIn, ContractOut
 
 log = logging.getLogger("forge")
 
 LENGTH_TOKENS = {"short": 350, "medium": 700, "long": 1400}
+
+
+class _ForgeBaseIn(ContractIn):
+    content:  str
+    tone:     Optional[str] = None
+    audience: Optional[str] = None
+
+
+class _ForgeBaseOut(ContractOut):
+    kind:  str
+    draft: str
+    spec:  str
+
+
+class ForgeDraftPostIn(_ForgeBaseIn):     length: Optional[str] = "medium"
+class ForgeDraftEmailIn(_ForgeBaseIn):    recipient: Optional[str] = None
+class ForgeDraftArticleIn(_ForgeBaseIn):  length: Optional[str] = "long"
+class ForgeCopyIn(_ForgeBaseIn):          style: Optional[str] = None
 
 STYLE_HINTS = {
     "draft_post":    "Write a punchy, scroll-stopping social post. Lead with the hook. One idea per line.",
@@ -35,6 +55,20 @@ class ForgeAgent(BaseAgent):
     DOMAINS = ["content", "writing", "copy", "blog", "post", "article", "creative", "email", "draft"]
     # Pure LLM output; only needs vault for tone-reference retrieval.
     CAPABILITIES = frozenset({"vault:read:MEMORY/*", "time:read"})
+    CONTRACTS = [
+        Contract("forge.draft_post",    "forge", "draft_post",
+                 "Punchy short-form social post.",
+                 ForgeDraftPostIn,    _ForgeBaseOut, timeout_s=45),
+        Contract("forge.draft_email",   "forge", "draft_email",
+                 "Direct, no-filler email with subject + body.",
+                 ForgeDraftEmailIn,   _ForgeBaseOut, timeout_s=45),
+        Contract("forge.draft_article", "forge", "draft_article",
+                 "Structured long-form article with subheadings.",
+                 ForgeDraftArticleIn, _ForgeBaseOut, timeout_s=90),
+        Contract("forge.copy",          "forge", "copy",
+                 "Tight marketing copy with a single CTA.",
+                 ForgeCopyIn,         _ForgeBaseOut, timeout_s=30),
+    ]
 
     async def handle(self, task: dict, session_id: str) -> dict:
         task_type = task.get("type", "draft_post")

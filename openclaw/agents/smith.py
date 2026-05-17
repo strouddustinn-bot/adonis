@@ -14,9 +14,38 @@ Failure classes:
   PROMETHEUS    — blocked by ethical fuse (not patchable by Smith)
 """
 import os, json, logging, asyncio
+from typing import Optional
+
 from openclaw.base_agent import BaseAgent
+from openclaw.contracts import Contract, ContractIn, ContractOut
 
 log = logging.getLogger("smith")
+
+
+class SmithDebugIn(ContractIn):
+    error:        str
+    context:      Optional[str] = ""
+    failed_agent: Optional[str] = "unknown"
+    attempt:      int = 1
+
+class SmithDebugOut(ContractOut):
+    failure_class: Optional[str] = None
+    fix:           Optional[str] = None
+    next_action:   Optional[str] = None
+    reason:        Optional[str] = None
+    failed_agent:  Optional[str] = None
+
+class SmithGenIn(ContractIn):
+    spec:     str
+    language: Optional[str] = "python"
+class SmithGenOut(ContractOut):
+    code:     Optional[str] = None
+    language: Optional[str] = None
+
+class SmithReviewIn(ContractIn):
+    code: str
+class SmithReviewOut(ContractOut):
+    review: Optional[str] = None
 
 class FailureClass:
     SYNTAX     = "syntax"
@@ -31,6 +60,17 @@ class SmithAgent(BaseAgent):
     DOMAINS = ["code","debug","engineering","fix","api","integration","error","bug","script","patch"]
     # Self-debug: reads vault patch queue; doesn't go out to the network on its own.
     CAPABILITIES = frozenset({"vault:read:SELF/*", "time:read"})
+    CONTRACTS = [
+        Contract("smith.debug_failure", "smith", "debug_failure",
+                 "Classify an agent failure and propose a fuse-gated patch.",
+                 SmithDebugIn,  SmithDebugOut,  timeout_s=45),
+        Contract("smith.generate_code", "smith", "generate_code",
+                 "Generate code for a precise spec in the requested language.",
+                 SmithGenIn,    SmithGenOut,    timeout_s=90),
+        Contract("smith.review_code",   "smith", "review_code",
+                 "Senior code review — flag bugs, security, perf issues.",
+                 SmithReviewIn, SmithReviewOut, timeout_s=60),
+    ]
 
     async def handle(self, task: dict, session_id: str) -> dict:
         task_type = task.get("type","debug")

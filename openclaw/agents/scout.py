@@ -17,10 +17,25 @@ import json
 import logging
 
 from openclaw.base_agent import BaseAgent
+from openclaw.contracts import Contract, ContractIn, ContractOut
 
 log = logging.getLogger("scout")
 
 TECH_HINTS = {"paper","arxiv","model","algorithm","benchmark","architecture","quantum","transformer","theory"}
+
+
+class ScoutResearchIn(ContractIn):
+    content: str
+    arxiv:   bool = False
+    n:       int  = 5
+
+
+class ScoutResearchOut(ContractOut):
+    query:    str
+    summary:  str
+    claims:   list = []
+    n_hits:   int  = 0
+    n_papers: int  = 0
 
 
 class ScoutAgent(BaseAgent):
@@ -32,6 +47,11 @@ class ScoutAgent(BaseAgent):
         "vault:read:MEMORY/*", "vault:write:MEMORY/*",
         "time:read",
     })
+    CONTRACTS = [
+        Contract("scout.research", "scout", "research",
+                 "Research a topic on the open web and (optionally) arXiv; return claims + sources.",
+                 ScoutResearchIn, ScoutResearchOut, timeout_s=90),
+    ]
 
     async def handle(self, task: dict, session_id: str) -> dict:
         query = (task.get("content") or task.get("task") or task.get("goal") or "").strip()

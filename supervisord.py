@@ -101,6 +101,13 @@ async def _amain() -> int:
     _TOOL_REG.attach_redis(redis)
     mcp_servers = await attach_mcp_servers()
 
+    # Build the contract registry from every agent class and hand it to
+    # the governor so each agent (and Atlas) can look up contracts at runtime.
+    from openclaw.contracts import ContractRegistry
+    contract_registry = ContractRegistry()
+    contract_registry.register_from_agents(AGENT_CLASSES)
+    governor.contract_registry = contract_registry
+
     agents = []
     for cls in AGENT_CLASSES:
         try:

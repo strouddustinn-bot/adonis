@@ -12,7 +12,11 @@ Lifecycle:
 
 All actions must pass through self.evaluate_action() before execution.
 """
-import os, json, logging, asyncio, uuid
+import asyncio
+import json
+import logging
+import os
+import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 
@@ -52,7 +56,17 @@ class BaseAgent(ABC):
             raise RuntimeError(f"[{self.NAME.upper()}] Agent is locked by Prometheus. Operator release required.")
 
     async def run(self):
-        """Main loop — subscribe to Redis channel and dispatch tasks."""
+        """Main loop — subscribe to Redis channel and dispatch tasks.
+
+        For every incoming task we:
+          1. Find the matching contract (if any) on this agent.
+          2. Validate the input against the contract's pydantic model.
+             Non-strict contracts attach _contract_warning and proceed.
+          3. Run handle() under asyncio.wait_for(contract.timeout_s).
+          4. Validate the result against the output model and attach
+             _contract_warning if it doesn't fit.
+          5. Emit, record outcome, and write to result_key for the caller.
+        """
         await self._check_lock()
         log.info(f"[{self.NAME.upper()}] Starting. Listening on {self.channel}")
         pubsub = self.redis.pubsub()
@@ -67,7 +81,9 @@ class BaseAgent(ABC):
                 trace_id   = task.get("trace_id", str(uuid.uuid4())[:8])
                 result_key = task.get("result_key")
                 log.debug(f"[{self.NAME.upper()}] Task received: {task.get('type','?')} session={session_id}")
-                result = await self.handle(task, session_id)
+
+                result = await self._run_under_contract(task, session_id)
+
                 await self.emit(result, session_id, trace_id)
                 await self._record_outcome(task, result, session_id, trace_id)
                 if result_key:
@@ -75,11 +91,57 @@ class BaseAgent(ABC):
                     await self.redis.setex(result_key, 60, json.dumps(result))
             except Exception as e:
                 log.error(f"[{self.NAME.upper()}] Error: {e}")
-                err = {"error": str(e), "agent": self.NAME}
+                err = {"status": "error", "error": str(e), "agent": self.NAME}
                 await self.emit(err, task.get("session_id",""), "")
                 rk = task.get("result_key")
                 if rk:
                     await self.redis.setex(rk, 60, json.dumps(err))
+
+    async def _run_under_contract(self, task: dict, session_id: str) -> dict:
+        """Apply contract validation + SLA to a single handle() invocation."""
+        registry = getattr(self.governor, "contract_registry", None)
+        contract = registry.find_for_task(task, agent_name=self.NAME) if registry else None
+
+        if contract is None:
+            # No contract → legacy path, no enforcement.
+            return await self.handle(task, session_id)
+
+        # Input validation
+        ok, err, normalised = contract.validate_input(task)
+        warnings: list[str] = []
+        if not ok:
+            if contract.strict:
+                return {"status": "error", "agent": self.NAME,
+                        "reason": f"contract input rejected: {err}",
+                        "contract": contract.name}
+            warnings.append(f"input: {err}")
+
+        # Run under SLA
+        try:
+            result = await asyncio.wait_for(self.handle(task, session_id),
+                                            timeout=contract.timeout_s)
+        except asyncio.TimeoutError:
+            log.warning("[%s] contract %s timed out after %ds",
+                        self.NAME.upper(), contract.name, contract.timeout_s)
+            return {"status": "timeout", "agent": self.NAME,
+                    "contract": contract.name, "timeout_s": contract.timeout_s}
+
+        if not isinstance(result, dict):
+            result = {"status": "error", "agent": self.NAME, "result": result}
+
+        # Output validation (lenient by default)
+        ok, err = contract.validate_output(result)
+        if not ok:
+            if contract.strict:
+                result["status"] = "error"
+                result["_contract_error"] = err
+            else:
+                warnings.append(f"output: {err}")
+
+        result["_contract"] = contract.name
+        if warnings:
+            result["_contract_warning"] = "; ".join(warnings)
+        return result
 
     @abstractmethod
     async def handle(self, task: dict, session_id: str) -> dict:

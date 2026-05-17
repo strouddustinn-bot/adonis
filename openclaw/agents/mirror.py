@@ -16,9 +16,31 @@ Also runs weekly cross-model personality consistency tests.
 """
 import os, json, logging, asyncio
 from datetime import datetime, timezone
+from typing import Optional
+
 from openclaw.base_agent import BaseAgent
+from openclaw.contracts import Contract, ContractIn, ContractOut
 
 log = logging.getLogger("mirror")
+
+
+class MirrorCycleIn(ContractIn): pass
+class MirrorCycleOut(ContractOut):
+    report: Optional[dict] = None
+    reason: Optional[str]  = None
+
+class MirrorConsistencyIn(ContractIn): pass
+class MirrorConsistencyOut(ContractOut):
+    consistency_score: Optional[float] = None
+    tests: Optional[int] = None
+
+class MirrorProposeIn(ContractIn):
+    agent: str
+    ges:   Optional[float] = None
+class MirrorProposeOut(ContractOut):
+    new_prompt:          Optional[str] = None
+    rationale:           Optional[str] = None
+    expected_improvement: Optional[str] = None
 
 BENCHMARK_TASKS = [
     {"goal":"Summarise the key points from a 1000-word article","expected_keywords":["key","point","summary"]},
@@ -33,6 +55,17 @@ class MirrorAgent(BaseAgent):
     DOMAINS = ["reflect","optimize","improve","benchmark","self","performance","rewrite","deprecat","review"]
     # Self-improvement: reads + writes the SELF/ vault namespace for proposals.
     CAPABILITIES = frozenset({"vault:read:SELF/*", "vault:write:SELF/*", "time:read"})
+    CONTRACTS = [
+        Contract("mirror.cycle",            "mirror", "mirror_cycle",
+                 "Run the daily self-improvement cycle: collect GES, propose rewrite, benchmark, adopt/reject.",
+                 MirrorCycleIn,       MirrorCycleOut,       timeout_s=300),
+        Contract("mirror.consistency_test", "mirror", "consistency_test",
+                 "Test soul-layer consistency across the persona model family.",
+                 MirrorConsistencyIn, MirrorConsistencyOut, timeout_s=60),
+        Contract("mirror.propose_rewrite",  "mirror", "propose_rewrite",
+                 "Produce a rewrite proposal for a single underperforming agent's system prompt.",
+                 MirrorProposeIn,     MirrorProposeOut,     timeout_s=45),
+    ]
 
     async def handle(self, task: dict, session_id: str) -> dict:
         task_type = task.get("type","mirror_cycle")

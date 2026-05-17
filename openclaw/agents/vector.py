@@ -13,10 +13,35 @@ import asyncio
 import json
 import logging
 import re
+from typing import Optional
 
 from openclaw.base_agent import BaseAgent
+from openclaw.contracts import Contract, ContractIn, ContractOut
 
 log = logging.getLogger("vector")
+
+
+class VectorFindLeadsIn(ContractIn):
+    content: str
+    n:       int = 6
+class VectorFindLeadsOut(ContractOut):
+    query:   str
+    leads:   list = []
+    summary: str  = ""
+
+class VectorSiteAuditIn(ContractIn):
+    url:   str
+    focus: Optional[str] = "seo"
+class VectorSiteAuditOut(ContractOut):
+    url:   str
+    page:  dict
+    audit: str
+
+class VectorKeywordScanIn(ContractIn):
+    content: str
+class VectorKeywordScanOut(ContractOut):
+    topic:    str
+    keywords: list = []
 
 _TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.S | re.I)
 _META_DESC_RE = re.compile(r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']+)', re.I)
@@ -40,6 +65,17 @@ class VectorAgent(BaseAgent):
     DOMAINS = ["leads", "seo", "web", "research", "traffic", "marketing", "search"]
     # Hits public web/SEO sources; writes nothing.
     CAPABILITIES = frozenset({"net:http_get", "net:web_search", "time:read"})
+    CONTRACTS = [
+        Contract("vector.find_leads",   "vector", "find_leads",
+                 "Search the web for organisations matching a brief; return structured leads.",
+                 VectorFindLeadsIn,   VectorFindLeadsOut,   timeout_s=60),
+        Contract("vector.site_audit",   "vector", "site_audit",
+                 "Fetch a URL and produce an SEO/copy/positioning audit.",
+                 VectorSiteAuditIn,   VectorSiteAuditOut,   timeout_s=45),
+        Contract("vector.keyword_scan", "vector", "keyword_scan",
+                 "Analyse search-result snippets and return high-intent keyword opportunities.",
+                 VectorKeywordScanIn, VectorKeywordScanOut, timeout_s=45),
+    ]
 
     async def handle(self, task: dict, session_id: str) -> dict:
         task_type = task.get("type")

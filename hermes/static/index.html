@@ -931,16 +931,60 @@
     const root = $("settings-render");
     root.textContent = "Loading…";
     try {
-      const [cfgR, capR, auditR] = await Promise.all([
-        fetch("/config"), fetch("/capabilities"), fetch("/tools/audit?n=20")
+      const [cfgR, capR, auditR, conR] = await Promise.all([
+        fetch("/config"), fetch("/capabilities"), fetch("/tools/audit?n=20"), fetch("/contracts")
       ]);
       const c   = await cfgR.json();
       const cap = await capR.json();
       const aud = await auditR.json();
-      root.innerHTML = renderSettings(c) + renderCapabilityPanel(cap) + renderToolAuditPanel(aud);
+      const con = await conR.json();
+      root.innerHTML = renderSettings(c)
+                     + renderContractsPanel(con)
+                     + renderCapabilityPanel(cap)
+                     + renderToolAuditPanel(aud);
     } catch (e) {
       root.innerHTML = `<div class="help" style="border-left-color:var(--red);color:var(--red)">Failed to load: ${escapeHtml(String(e))}</div>`;
     }
+  }
+
+  function renderContractsPanel(c) {
+    const list = (c && c.contracts) || [];
+    if (!list.length) return `<div class="panel"><h3>Contracts</h3><div class="empty-line">no contracts registered</div></div>`;
+    const byAgent = {};
+    list.forEach(ct => { (byAgent[ct.agent] = byAgent[ct.agent] || []).push(ct); });
+    const cards = Object.keys(byAgent).sort().map(agent => {
+      const rows = byAgent[agent].map(ct => `
+        <details style="margin-bottom:8px">
+          <summary style="cursor:pointer;font-family:var(--mono);font-size:12.5px;color:var(--text);user-select:none">
+            <span class="ent">${escapeHtml(ct.name)}</span>
+            <span style="color:var(--muted);margin-left:8px">type=${escapeHtml(ct.task_type)}</span>
+            <span class="chip" style="margin-left:8px">${ct.timeout_s}s</span>
+            <span class="chip">retries ${ct.max_retries}</span>
+            <span class="chip">${escapeHtml(ct.version)}</span>
+            ${ct.fallback_contract ? `<span class="chip">→ ${escapeHtml(ct.fallback_contract)}</span>` : ""}
+          </summary>
+          <div style="padding:8px 6px;color:var(--muted);font-size:12.5px">${escapeHtml(ct.description)}</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px">
+            <div>
+              <div style="font-size:10px;color:var(--muted-2);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:4px">input</div>
+              <pre style="background:var(--bg-0);border:1px solid var(--border);border-radius:4px;padding:8px;font-size:11px;overflow-x:auto;max-height:200px">${escapeHtml(JSON.stringify(ct.input_schema, null, 2))}</pre>
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--muted-2);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:4px">output</div>
+              <pre style="background:var(--bg-0);border:1px solid var(--border);border-radius:4px;padding:8px;font-size:11px;overflow-x:auto;max-height:200px">${escapeHtml(JSON.stringify(ct.output_schema, null, 2))}</pre>
+            </div>
+          </div>
+        </details>`).join("");
+      return `<div class="panel" style="padding:14px 18px;margin-bottom:10px">
+        <div style="font-family:var(--mono);font-size:13px;color:var(--accent);margin-bottom:8px">${escapeHtml(agent)}</div>
+        ${rows}
+      </div>`;
+    }).join("");
+    return `<div class="panel"><h3>Contracts (${list.length} total)</h3>${cards}
+      <div class="help">Each agent advertises which task types it serves, the input/output schema,
+      and an SLA (timeout, retry count, optional fallback). Atlas picks a contract per subtask;
+      receiver validates input + output; caller retries with exponential backoff and falls back
+      to <code>fallback_contract</code> if exhausted.</div></div>`;
   }
 
   function renderCapabilityPanel(c) {

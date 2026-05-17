@@ -240,6 +240,20 @@ def build_app(*, llm, redis, fuse, governor, model: str) -> FastAPI:
             "agents": agent_names,
         }
 
+    # ── Contracts ────────────────────────────────────────────────────────
+    @app.get("/contracts")
+    async def contracts_list():
+        reg = getattr(governor, "contract_registry", None)
+        if reg is None: return {"contracts": []}
+        return {"contracts": reg.describe()}
+
+    @app.get("/contracts/{name}")
+    async def contracts_get(name: str):
+        reg = getattr(governor, "contract_registry", None)
+        if reg is None or name not in reg.by_name:
+            raise HTTPException(status_code=404, detail=f"unknown contract: {name}")
+        return reg.by_name[name].to_dict()
+
     # ── Capabilities + tool audit ────────────────────────────────────────
     @app.get("/capabilities")
     async def capabilities_matrix():

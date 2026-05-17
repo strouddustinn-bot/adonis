@@ -17,8 +17,26 @@ import logging
 import time
 
 from openclaw.base_agent import BaseAgent
+from openclaw.contracts import Contract, ContractIn, ContractOut
 
 log = logging.getLogger("sentinel")
+
+
+class SentinelHealthIn(ContractIn): pass
+class SentinelHealthOut(ContractOut):
+    redis:      dict = {}
+    chroma:     dict = {}
+    obsidian:   dict = {}
+    prometheus: dict = {}
+    ges:        dict = {}
+    tools:      dict = {}
+
+class SentinelAuditIn(ContractIn):
+    window: int = 200
+class SentinelAuditOut(ContractOut):
+    window:   int
+    by_level: dict = {}
+    by_agent: dict = {}
 
 
 class SentinelAgent(BaseAgent):
@@ -26,6 +44,14 @@ class SentinelAgent(BaseAgent):
     DOMAINS = ["monitor", "health", "alert", "status", "uptime", "check"]
     # Probes internal services only — no outbound traffic, no vault writes.
     CAPABILITIES = frozenset({"time:read"})
+    CONTRACTS = [
+        Contract("sentinel.health",        "sentinel", "health",
+                 "Probe redis, chroma, obsidian, fuse audit volume, GES freshness, tool inventory.",
+                 SentinelHealthIn, SentinelHealthOut, timeout_s=15),
+        Contract("sentinel.audit_summary", "sentinel", "audit_summary",
+                 "Summarise the last N Prometheus fuse decisions by level and agent.",
+                 SentinelAuditIn,  SentinelAuditOut,  timeout_s=10),
+    ]
 
     async def handle(self, task: dict, session_id: str) -> dict:
         task_type = task.get("type", "health")
