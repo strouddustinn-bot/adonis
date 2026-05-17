@@ -153,6 +153,79 @@ def build_app(*, llm, redis, fuse, governor, model: str) -> FastAPI:
     async def ges():
         return await governor.get_ges_report()
 
+    @app.get("/config")
+    async def config_snapshot():
+        """Read-only runtime snapshot. All secrets are masked."""
+        import hashlib
+        from pathlib import Path
+        from tools.registry import REGISTRY
+
+        def _mask(v: str, head: int = 8, tail: int = 4) -> str:
+            if not v: return ""
+            if len(v) <= head + tail: return "•" * len(v)
+            return f"{v[:head]}…{v[-tail:]}"
+
+        api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        obs_token = os.getenv("OBSIDIAN_TOKEN", "")
+        webhook = os.getenv("PROMETHEUS_ALERT_WEBHOOK", "")
+
+        fuse_path = Path(__file__).resolve().parent.parent / "prometheus" / "fuse.py"
+        pinned = os.getenv("PROMETHEUS_HASH", "UNSET")
+        current = hashlib.sha256(fuse_path.read_bytes()).hexdigest() if fuse_path.exists() else ""
+
+        mcp_raw = os.getenv("MCP_SERVERS", "").strip()
+        mcp_names: list[str] = []
+        mcp_status = "disabled"
+        if mcp_raw:
+            try:
+                specs = json.loads(mcp_raw)
+                mcp_names = [s.get("name", "?") for s in specs]
+                mcp_status = "configured"
+            except Exception:
+                mcp_status = "invalid JSON"
+
+        ctx = getattr(governor, "context", None)
+        chroma_ok = bool(getattr(ctx, "chroma", None))
+        obs_obj   = getattr(ctx, "obs", None)
+
+        try:
+            from routing.moe_router import AGENT_REGISTRY
+            agent_names = [a.name for a in AGENT_REGISTRY]
+        except Exception:
+            agent_names = []
+
+        return {
+            "system": {
+                "model":      model,
+                "hermes_port": int(os.getenv("HERMES_PORT", "8088")),
+                "log_level":  os.getenv("LOG_LEVEL", "INFO"),
+            },
+            "auth": {
+                "anthropic_key_set":    bool(api_key.startswith("sk-ant-")),
+                "anthropic_key_preview": _mask(api_key, 10, 4) if api_key else "<unset>",
+            },
+            "safety": {
+                "fuse_hash_pinned":  pinned[:16] + ("…" if len(pinned) > 16 else "") if pinned != "UNSET" else "UNSET",
+                "fuse_hash_current": (current[:16] + "…") if current else "?",
+                "match":             bool(current) and pinned == current,
+                "alert_webhook":     "configured" if webhook else "disabled",
+            },
+            "memory": {
+                "redis_url":  os.getenv("REDIS_URL", "redis://localhost:6379"),
+                "chroma_url": os.getenv("CHROMA_URL", ""),
+                "chroma_wired":   chroma_ok,
+                "obsidian_url":   os.getenv("OBSIDIAN_API", "") or "<disabled>",
+                "obsidian_wired": bool(obs_obj),
+                "obsidian_token": _mask(obs_token, 4, 4) if obs_token else "<unset>",
+            },
+            "mcp": {
+                "status": mcp_status,
+                "servers": mcp_names,
+            },
+            "tools": REGISTRY.names(),
+            "agents": agent_names,
+        }
+
     # ── Web UI ───────────────────────────────────────────────────────────
     if STATIC_DIR.is_dir():
         app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

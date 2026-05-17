@@ -6,372 +6,697 @@
 <title>Adonis</title>
 <style>
   :root {
-    --bg: #0d1117;
-    --panel: #161b22;
-    --panel-soft: #1c2128;
+    --bg-0: #07090d;
+    --bg-1: #0d1117;
+    --bg-2: #161b22;
+    --bg-3: #1c2128;
+    --bg-4: #21262d;
     --border: #30363d;
+    --border-strong: #484f58;
     --text: #e6edf3;
+    --text-dim: #c9d1d9;
     --muted: #8b949e;
+    --muted-2: #6e7681;
     --accent: #58a6ff;
+    --accent-2: #1f6feb;
+    --accent-glow: #58a6ff44;
     --green: #3fb950;
+    --green-soft: #3fb95022;
     --yellow: #d29922;
+    --orange: #db6d28;
     --red: #f85149;
-    --user: #1f6feb22;
-    --assistant: #21262d;
-    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --red-soft: #f8514922;
+    --violet: #d2a8ff;
+    --user-bg: linear-gradient(135deg, #1f6feb22, #58a6ff11);
+    --user-border: #1f6feb55;
+    --assistant-bg: #161b22;
+    --assistant-border: #30363d;
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.5);
+    --shadow-glow: 0 0 24px var(--accent-glow);
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body {
-    background: var(--bg); color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-    font-size: 14px; line-height: 1.5;
+    background:
+      radial-gradient(ellipse 80% 50% at 50% -10%, #1f6feb12, transparent 70%),
+      radial-gradient(ellipse 60% 40% at 110% 100%, #d2a8ff0a, transparent 70%),
+      var(--bg-0);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 14px; line-height: 1.55;
     display: grid;
-    grid-template-rows: 56px 1fr;
-  }
-  header {
-    border-bottom: 1px solid var(--border);
-    background: var(--panel);
-    display: flex; align-items: center; gap: 16px;
-    padding: 0 20px;
-  }
-  header h1 {
-    margin: 0; font-size: 16px; font-weight: 600; letter-spacing: 0.05em;
-  }
-  header .grow { flex: 1; }
-  header .session {
-    font-family: var(--mono); font-size: 12px; color: var(--muted);
-  }
-  header button {
-    background: transparent; color: var(--muted); border: 1px solid var(--border);
-    padding: 4px 10px; font-size: 12px; cursor: pointer; border-radius: 4px;
-    font-family: var(--mono);
-  }
-  header button:hover { color: var(--text); border-color: var(--accent); }
-  .mode {
-    display: inline-flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden;
-  }
-  .mode button {
-    border: 0; padding: 6px 12px; font-size: 12px;
-    background: transparent; color: var(--muted); cursor: pointer; font-family: var(--mono);
-  }
-  .mode button.active { background: var(--accent); color: #0d1117; }
-
-  main {
-    display: grid;
-    grid-template-columns: 1fr 320px;
+    grid-template-rows: 60px 1fr;
+    min-height: 0;
     overflow: hidden;
   }
+  ::selection { background: var(--accent-glow); }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+  /* ─── Header ───────────────────────────────────────────────────────── */
+  header {
+    border-bottom: 1px solid var(--border);
+    background: rgba(13, 17, 23, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    display: flex; align-items: center; gap: 18px;
+    padding: 0 22px;
+    z-index: 10;
+  }
+  .logo {
+    font-size: 15px; font-weight: 700; letter-spacing: 0.16em;
+    background: linear-gradient(180deg, #fff, #8b949e);
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+    margin-right: 6px;
+  }
+  .tabs { display: flex; gap: 4px; }
+  .tab {
+    background: transparent; border: 0; color: var(--muted);
+    padding: 8px 14px; font-size: 13px; cursor: pointer; border-radius: 6px;
+    font-family: inherit; transition: all 0.15s ease;
+    position: relative;
+  }
+  .tab:hover { color: var(--text); background: var(--bg-3); }
+  .tab.active { color: var(--text); background: var(--bg-3); }
+  .tab.active::after {
+    content: ""; position: absolute; left: 14px; right: 14px; bottom: -1px;
+    height: 2px; background: var(--accent); border-radius: 2px;
+  }
+  header .grow { flex: 1; }
+  .mode {
+    display: inline-flex; border: 1px solid var(--border); border-radius: 8px;
+    overflow: hidden; padding: 2px;
+  }
+  .mode button {
+    border: 0; padding: 5px 12px; font-size: 12px; border-radius: 6px;
+    background: transparent; color: var(--muted); cursor: pointer; font-family: var(--mono);
+    transition: all 0.15s ease;
+  }
+  .mode button:hover { color: var(--text); }
+  .mode button.active {
+    background: var(--accent); color: var(--bg-1); font-weight: 600;
+    box-shadow: var(--shadow-glow);
+  }
+  .session-pill {
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+    padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px;
+    background: var(--bg-2);
+  }
+  .icon-btn {
+    background: transparent; color: var(--muted); border: 1px solid var(--border);
+    padding: 5px 11px; font-size: 12px; cursor: pointer; border-radius: 6px;
+    font-family: var(--mono); transition: all 0.15s ease;
+  }
+  .icon-btn:hover { color: var(--text); border-color: var(--accent); background: var(--accent-glow); }
+
+  /* ─── Main ─────────────────────────────────────────────────────────── */
+  main {
+    overflow: hidden;
+    min-height: 0;
+    display: contents;
+  }
+  .view { display: none; min-height: 0; overflow: hidden; }
+  .view.active { display: grid; }
+
+  /* ─── Chat view ────────────────────────────────────────────────────── */
+  #view-chat { grid-template-columns: minmax(0, 1fr) 320px; min-height: 0; }
   .chat {
-    display: flex; flex-direction: column; min-width: 0;
+    display: flex; flex-direction: column; min-width: 0; min-height: 0;
     border-right: 1px solid var(--border);
   }
   .messages {
-    flex: 1; overflow-y: auto;
-    padding: 20px 24px;
+    flex: 1; min-height: 0; overflow-y: auto;
+    padding: 24px 28px;
+    scroll-behavior: smooth;
   }
   .empty {
-    color: var(--muted); text-align: center; margin-top: 80px;
-    font-family: var(--mono); font-size: 13px;
+    color: var(--muted); text-align: center; margin-top: 60px;
+    max-width: 540px; margin-left: auto; margin-right: auto;
   }
-  .msg { margin-bottom: 14px; }
+  .empty .crest {
+    font-family: var(--mono); font-size: 11px; color: var(--muted-2);
+    letter-spacing: 0.16em; margin-bottom: 12px;
+  }
+  .empty h2 {
+    font-size: 26px; font-weight: 600; margin: 0 0 8px;
+    background: linear-gradient(180deg, #fff, #8b949e);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .empty p { color: var(--muted); margin: 0 0 24px; font-size: 14px; }
+  .empty .hints {
+    display: grid; gap: 8px; text-align: left;
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; font-family: var(--mono); font-size: 12px;
+  }
+  .empty .hints b { color: var(--accent); font-weight: 600; }
+  .empty .hints span { color: var(--text-dim); }
+
+  .msg { margin-bottom: 18px; animation: slidein 0.18s ease; }
+  @keyframes slidein {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
   .msg .who {
-    font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
-    color: var(--muted); margin-bottom: 4px; font-family: var(--mono);
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em;
+    color: var(--muted); margin-bottom: 6px; font-family: var(--mono);
+    display: flex; align-items: center; gap: 8px;
   }
-  .msg.user .bubble    { background: var(--user); border-color: #1f6feb55; }
-  .msg.assistant .bubble { background: var(--assistant); }
-  .msg.error .bubble    { background: #f8514922; border-color: var(--red); }
+  .msg .who .badge {
+    padding: 1px 6px; border-radius: 4px; font-size: 9px;
+    background: var(--bg-3); border: 1px solid var(--border);
+  }
   .bubble {
-    padding: 10px 14px; border-radius: 6px; border: 1px solid var(--border);
-    white-space: pre-wrap; word-wrap: break-word;
+    padding: 12px 16px; border-radius: 10px;
+    white-space: pre-wrap; word-wrap: break-word; overflow-wrap: anywhere;
+    border: 1px solid;
+    box-shadow: var(--shadow-sm);
+    line-height: 1.6;
+  }
+  .msg.user .bubble       { background: var(--user-bg);      border-color: var(--user-border); }
+  .msg.assistant .bubble  { background: var(--assistant-bg); border-color: var(--assistant-border); }
+  .msg.error .bubble      { background: var(--red-soft);     border-color: var(--red); color: #ffb3ad; }
+  .msg.system .bubble     { background: var(--bg-2);         border-color: var(--border); color: var(--text-dim); font-family: var(--mono); font-size: 12.5px; }
+  .msg.assistant.thinking .bubble { color: var(--muted); font-style: italic; }
+  .msg.assistant.thinking .bubble::before {
+    content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent); margin-right: 8px; vertical-align: middle;
+    animation: pulse 1.2s infinite ease-in-out;
   }
   .meta {
-    font-size: 11px; color: var(--muted); font-family: var(--mono); margin-top: 6px;
-    display: flex; gap: 12px; flex-wrap: wrap;
+    font-size: 11px; color: var(--muted); font-family: var(--mono); margin-top: 8px;
+    display: flex; gap: 14px; flex-wrap: wrap;
   }
-  .meta b { color: var(--text); font-weight: normal; }
-  details.subtasks { margin-top: 8px; }
-  details.subtasks summary { cursor: pointer; color: var(--muted); font-size: 12px; font-family: var(--mono); }
-  details.subtasks pre { background: #0a0d12; border: 1px solid var(--border); border-radius: 4px; padding: 10px; overflow-x: auto; font-size: 12px; }
+  .meta b { color: var(--text-dim); font-weight: 500; }
+  .meta .cache { color: var(--green); }
+  details.subtasks { margin-top: 10px; }
+  details.subtasks summary {
+    cursor: pointer; color: var(--muted); font-size: 11.5px; font-family: var(--mono);
+    user-select: none; transition: color 0.15s;
+  }
+  details.subtasks summary:hover { color: var(--text); }
+  details.subtasks pre {
+    background: var(--bg-0); border: 1px solid var(--border); border-radius: 6px;
+    padding: 12px; overflow-x: auto; font-size: 11.5px; margin-top: 8px;
+    color: var(--text-dim);
+  }
 
+  /* ─── Input ────────────────────────────────────────────────────────── */
+  .input-wrap {
+    border-top: 1px solid var(--border); padding: 14px 22px;
+    background: var(--bg-1);
+    position: relative;
+  }
+  .slash-hint {
+    position: absolute; bottom: 100%; left: 22px; right: 22px;
+    background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 12px; margin-bottom: 6px; box-shadow: var(--shadow-md);
+    font-size: 12px; font-family: var(--mono); color: var(--muted);
+    display: none; max-height: 240px; overflow-y: auto;
+  }
+  .slash-hint.show { display: block; }
+  .slash-hint .row { padding: 4px 0; display: flex; gap: 12px; }
+  .slash-hint .row b { color: var(--accent); min-width: 110px; font-weight: 500; }
+  .slash-hint .row span { color: var(--text-dim); }
   .input {
-    border-top: 1px solid var(--border); padding: 12px 16px;
-    background: var(--panel);
-    display: flex; gap: 10px; align-items: flex-end;
+    display: flex; gap: 12px; align-items: flex-end;
+    background: var(--bg-2); border: 1px solid var(--border); border-radius: 12px;
+    padding: 8px 8px 8px 14px;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .input:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
   }
   textarea {
-    flex: 1; resize: none; min-height: 44px; max-height: 200px;
-    background: var(--bg); color: var(--text); border: 1px solid var(--border);
-    border-radius: 6px; padding: 10px 12px; font-size: 14px;
+    flex: 1; resize: none; min-height: 32px; max-height: 220px;
+    background: transparent; color: var(--text); border: 0;
+    padding: 8px 0; font-size: 14.5px; font-family: inherit;
+    line-height: 1.5;
+  }
+  textarea:focus { outline: none; }
+  .send {
+    background: var(--accent); color: var(--bg-1); border: 0;
+    padding: 10px 20px; font-size: 13px; font-weight: 600; border-radius: 8px;
+    cursor: pointer; transition: all 0.15s ease;
+    box-shadow: var(--shadow-glow);
     font-family: inherit;
   }
-  textarea:focus { outline: none; border-color: var(--accent); }
-  .send {
-    background: var(--accent); color: #0d1117; border: 0; padding: 10px 18px;
-    font-size: 13px; font-weight: 600; border-radius: 6px; cursor: pointer;
-  }
-  .send:disabled { opacity: 0.5; cursor: not-allowed; }
+  .send:hover:not(:disabled) { background: #79b8ff; transform: translateY(-1px); }
+  .send:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
 
-  aside { overflow-y: auto; background: var(--panel); padding: 16px; }
-  aside h2 {
-    margin: 0 0 8px; font-size: 11px; color: var(--muted);
-    text-transform: uppercase; letter-spacing: 0.08em; font-family: var(--mono);
-    font-weight: 500;
+  /* ─── Sidebar ──────────────────────────────────────────────────────── */
+  aside {
+    overflow-y: auto; background: var(--bg-1); padding: 18px;
+    min-height: 0;
   }
-  aside section { margin-bottom: 24px; }
+  aside section { margin-bottom: 22px; }
+  aside h2 {
+    margin: 0 0 10px; font-size: 10px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.14em; font-family: var(--mono);
+    font-weight: 500;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .card {
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px;
+  }
   .kv {
-    display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px;
-    font-family: var(--mono); font-size: 12px;
+    display: grid; grid-template-columns: max-content 1fr; gap: 8px 14px;
+    font-family: var(--mono); font-size: 12px; align-items: center;
   }
   .kv span { color: var(--muted); }
-  .kv b { font-weight: normal; color: var(--text); }
-  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: middle; margin-right: 6px; }
-  .dot.ok    { background: var(--green); }
-  .dot.off   { background: var(--muted); }
-  .dot.bad   { background: var(--red); }
-  .dot.warn  { background: var(--yellow); }
-  .audit {
-    font-family: var(--mono); font-size: 11px; line-height: 1.45;
-    border-top: 1px solid var(--border); padding-top: 8px;
+  .kv b { font-weight: 400; color: var(--text); text-align: right; }
+  .dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    vertical-align: middle; margin-right: 6px; box-shadow: 0 0 8px currentColor;
   }
-  .audit .row { display: grid; grid-template-columns: 14px 1fr; gap: 6px; margin-bottom: 6px; }
-  .audit .lvl { font-weight: 600; }
+  .dot.ok    { background: var(--green);  color: var(--green); }
+  .dot.off   { background: var(--muted-2); color: var(--muted-2); box-shadow: none; }
+  .dot.warn  { background: var(--yellow); color: var(--yellow); }
+  .dot.bad   { background: var(--red);    color: var(--red); }
+  .audit { font-family: var(--mono); font-size: 11px; line-height: 1.55; }
+  .audit .row { display: grid; grid-template-columns: 14px 1fr; gap: 8px; margin-bottom: 6px; }
+  .audit .lvl { font-weight: 700; }
   .audit .GREEN  { color: var(--green); }
   .audit .YELLOW { color: var(--yellow); }
-  .audit .ORANGE { color: #db6d28; }
+  .audit .ORANGE { color: var(--orange); }
   .audit .RED    { color: var(--red); }
-  .audit .BLACK  { color: #d2a8ff; }
+  .audit .BLACK  { color: var(--violet); }
 
-  .pulse {
-    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
-    background: var(--accent); margin-right: 6px; animation: pulse 1.2s infinite ease-in-out;
+  @keyframes pulse { 0%,100% { opacity: 0.3; transform: scale(0.85); } 50% { opacity: 1; transform: scale(1); } }
+
+  /* ─── Settings view ────────────────────────────────────────────────── */
+  #view-settings { grid-template-columns: minmax(0, 1fr); }
+  .settings-scroll { overflow-y: auto; padding: 28px 40px; min-height: 0; }
+  .settings-inner { max-width: 920px; margin: 0 auto; }
+  .settings-inner h1 {
+    font-size: 22px; margin: 0 0 6px;
+    background: linear-gradient(180deg, #fff, #8b949e);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
   }
-  @keyframes pulse { 0%,100% { opacity: 0.3 } 50% { opacity: 1 } }
+  .settings-inner > p { color: var(--muted); margin: 0 0 28px; }
+  .panel {
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px 22px; margin-bottom: 18px;
+    transition: border-color 0.15s;
+  }
+  .panel:hover { border-color: var(--border-strong); }
+  .panel h3 {
+    margin: 0 0 12px; font-size: 12px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.14em; font-family: var(--mono);
+    font-weight: 500;
+  }
+  .table {
+    display: grid; grid-template-columns: 220px 1fr; gap: 10px 20px;
+    font-size: 13px; align-items: center;
+  }
+  .table > div:nth-child(odd) { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+  .table > div:nth-child(even) { font-family: var(--mono); font-size: 12.5px; color: var(--text); word-break: break-all; }
+  .pill {
+    display: inline-block; padding: 2px 8px; border-radius: 999px;
+    font-size: 11px; font-family: var(--mono); border: 1px solid;
+  }
+  .pill.ok   { color: var(--green); border-color: var(--green); background: var(--green-soft); }
+  .pill.bad  { color: var(--red);   border-color: var(--red);   background: var(--red-soft); }
+  .pill.off  { color: var(--muted-2); border-color: var(--border); background: var(--bg-3); }
+  .chiprow { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    padding: 3px 10px; border-radius: 999px; font-size: 11.5px;
+    background: var(--bg-3); border: 1px solid var(--border);
+    font-family: var(--mono); color: var(--text-dim);
+  }
+  .help {
+    background: var(--bg-2); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+    border-radius: 6px; padding: 12px 16px; margin-top: 8px;
+    color: var(--muted); font-size: 12.5px; line-height: 1.7;
+  }
+  .help code {
+    background: var(--bg-0); padding: 2px 6px; border-radius: 4px;
+    font-family: var(--mono); font-size: 12px; color: var(--text);
+  }
 
-  @media (max-width: 800px) {
-    main { grid-template-columns: 1fr; }
+  /* ─── Mobile ───────────────────────────────────────────────────────── */
+  @media (max-width: 860px) {
+    #view-chat { grid-template-columns: minmax(0, 1fr); }
     aside { display: none; }
+    .empty .hints { font-size: 11px; }
+    .settings-scroll { padding: 20px 16px; }
+    .table { grid-template-columns: 1fr; }
   }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>ADONIS</h1>
-  <div class="mode" role="tablist">
+  <span class="logo">ADONIS</span>
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="chat">Chat</button>
+    <button class="tab" data-tab="settings">Settings</button>
+  </nav>
+  <div class="grow"></div>
+  <div class="mode" id="mode-toggle" role="tablist">
     <button id="mode-ask"  class="active" title="Single-turn answer through the Glasswing pipeline">Ask</button>
     <button id="mode-task" title="Multi-agent goal orchestrated by Atlas">Task</button>
   </div>
-  <div class="grow"></div>
-  <span class="session" id="session-label">session: —</span>
-  <button id="reset-btn" title="Clear conversation and start a new session">reset</button>
+  <span class="session-pill" id="session-label">—</span>
+  <button class="icon-btn" id="reset-btn" title="New session">reset</button>
 </header>
 
 <main>
-  <div class="chat">
-    <div class="messages" id="messages">
-      <div class="empty" id="empty">
-        Type below to talk to Adonis.<br>
-        Ask = fast, single-turn through Glasswing cache + context.<br>
-        Task = decompose &amp; route to specialist agents via Atlas.
+
+  <!-- ─── Chat view ────────────────────────────────────────────────── -->
+  <div class="view active" id="view-chat">
+    <div class="chat">
+      <div class="messages" id="messages">
+        <div class="empty" id="empty">
+          <div class="crest">A D O N I S &nbsp;·&nbsp; v 1.0</div>
+          <h2>Talk to Adonis</h2>
+          <p>Glasswing-gated, Prometheus-supervised, self-improving agent runtime.</p>
+          <div class="hints">
+            <div><b>Type freely</b> <span>— sent through Glasswing cache + soul + LLM</span></div>
+            <div><b>Switch to Task</b> <span>— decompose &amp; route through Atlas to specialists</span></div>
+            <div><b>/help</b> <span>— list available slash commands</span></div>
+            <div><b>/health</b> <span>— probe runtime services</span></div>
+            <div><b>/settings</b> <span>— jump to the configuration view</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="input-wrap">
+        <div class="slash-hint" id="slash-hint"></div>
+        <div class="input">
+          <textarea id="input" placeholder="Talk to Adonis...  (Shift+Enter for newline, / for commands)" rows="1"></textarea>
+          <button class="send" id="send">send</button>
+        </div>
       </div>
     </div>
-    <div class="input">
-      <textarea id="input" placeholder="Talk to Adonis... (Shift+Enter for newline)" rows="1"></textarea>
-      <button class="send" id="send">send</button>
+
+    <aside>
+      <section>
+        <h2>Services</h2>
+        <div class="card">
+          <div class="kv" id="health">
+            <span>redis</span>    <b id="h-redis">—</b>
+            <span>chroma</span>   <b id="h-chroma">—</b>
+            <span>obsidian</span> <b id="h-obsidian">—</b>
+            <span>audit log</span><b id="h-audit">—</b>
+          </div>
+        </div>
+      </section>
+      <section>
+        <h2>Agent efficiency (GES)</h2>
+        <div class="card"><div class="kv" id="ges"><span>—</span><b>loading…</b></div></div>
+      </section>
+      <section>
+        <h2>Recent Prometheus decisions</h2>
+        <div class="card"><div class="audit" id="audit">
+          <div class="row"><span class="lvl">—</span><span>no decisions yet</span></div>
+        </div></div>
+      </section>
+    </aside>
+  </div>
+
+  <!-- ─── Settings view ───────────────────────────────────────────── -->
+  <div class="view" id="view-settings">
+    <div class="settings-scroll">
+      <div class="settings-inner" id="settings-body">
+        <h1>Configuration</h1>
+        <p>Live runtime snapshot. Secrets are masked. Read-only — edit <code>~/adonis/.env</code> and run <code>python3 bootstrap.py --reset &amp;&amp; python3 bootstrap.py --start</code> to apply.</p>
+        <div id="settings-render">Loading…</div>
+      </div>
     </div>
   </div>
 
-  <aside>
-    <section>
-      <h2>Services</h2>
-      <div class="kv" id="health">
-        <span>redis</span>    <b id="h-redis">—</b>
-        <span>chroma</span>   <b id="h-chroma">—</b>
-        <span>obsidian</span> <b id="h-obsidian">—</b>
-        <span>audit</span>    <b id="h-audit">—</b>
-      </div>
-    </section>
-
-    <section>
-      <h2>Agent efficiency (GES)</h2>
-      <div class="kv" id="ges"><span>—</span><b>loading…</b></div>
-    </section>
-
-    <section>
-      <h2>Recent Prometheus decisions</h2>
-      <div class="audit" id="audit"><div class="row"><span class="lvl">—</span><span>loading…</span></div></div>
-    </section>
-  </aside>
 </main>
 
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
-  const messagesEl = $("messages");
-  const inputEl    = $("input");
-  const sendBtn    = $("send");
-  const emptyEl    = $("empty");
-  const resetBtn   = $("reset-btn");
-  const sessionLabel = $("session-label");
-  const modeAsk  = $("mode-ask");
-  const modeTask = $("mode-task");
-
   const STORAGE_KEY = "adonis.state.v1";
 
+  // ─── state ─────────────────────────────────────────────────────────
   let state = loadState();
-  let mode = "ask";          // 'ask' | 'task'
+  let mode  = "ask";
+  let view  = "chat";
   let inflight = false;
 
-  // ── persistence ──────────────────────────────────────────────────────
   function newSessionId() {
     if (crypto && crypto.randomUUID) return "sess_" + crypto.randomUUID().slice(0, 10);
     return "sess_" + Math.random().toString(36).slice(2, 12);
   }
   function loadState() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) return JSON.parse(raw);
-    } catch (e) {}
+    try { const raw = localStorage.getItem(STORAGE_KEY); if (raw) return JSON.parse(raw); } catch (e) {}
     return { sessionId: newSessionId(), messages: [] };
   }
   function saveState() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
   }
-  function resetSession() {
-    state = { sessionId: newSessionId(), messages: [] };
-    saveState();
-    render();
-  }
 
-  // ── rendering ────────────────────────────────────────────────────────
+  // ─── rendering ─────────────────────────────────────────────────────
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   }
 
   function render() {
-    sessionLabel.textContent = "session: " + state.sessionId;
-    emptyEl.style.display = state.messages.length ? "none" : "block";
-    const html = state.messages.map(renderMessage).join("");
-    messagesEl.innerHTML = (state.messages.length ? html : emptyEl.outerHTML);
-    if (!state.messages.length) {
-      // outerHTML resets the element ref; rebind
-      // (cheap workaround: keep emptyEl visible only when empty)
+    $("session-label").textContent = state.sessionId;
+    const empty = $("empty");
+    if (state.messages.length === 0) {
+      $("messages").innerHTML = "";
+      $("messages").appendChild(empty);
+      empty.style.display = "block";
+      return;
     }
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    $("messages").innerHTML = state.messages.map(renderMessage).join("");
+    $("messages").scrollTop = $("messages").scrollHeight;
   }
 
   function renderMessage(m) {
     const meta = m.meta ? renderMeta(m.meta) : "";
     const subs = m.subtasks ? renderSubtasks(m.subtasks) : "";
+    const badge = m.badge ? `<span class="badge">${escapeHtml(m.badge)}</span>` : "";
+    const cls = (m.role || "assistant") + (m._placeholder ? " thinking" : "");
     return `
-      <div class="msg ${m.role}">
-        <div class="who">${m.role}</div>
+      <div class="msg ${cls}">
+        <div class="who">${m.role}${badge}</div>
         <div class="bubble">${escapeHtml(m.content)}</div>
-        ${meta}
-        ${subs}
+        ${meta}${subs}
       </div>`;
   }
   function renderMeta(meta) {
     const parts = [];
-    if (meta.cache_hit) parts.push("<b>cache hit</b>");
-    if (meta.agents && meta.agents.length) parts.push("agents: <b>" + meta.agents.join(", ") + "</b>");
-    if (meta.think)  parts.push("think: <b>" + meta.think + "</b>");
-    if (meta.tokens) parts.push("tokens: <b>" + meta.tokens + "</b>");
-    if (meta.prep_ms != null) parts.push("prep: <b>" + meta.prep_ms + "ms</b>");
-    if (meta.error)  parts.push("<b style='color:#f85149'>" + escapeHtml(meta.error) + "</b>");
+    if (meta.cache_hit) parts.push('<span class="cache"><b>cache hit</b></span>');
+    if (meta.agents && meta.agents.length) parts.push("agents <b>" + meta.agents.join(", ") + "</b>");
+    if (meta.think)  parts.push("think <b>" + meta.think + "</b>");
+    if (meta.tokens) parts.push("tokens <b>" + meta.tokens + "</b>");
+    if (meta.prep_ms != null) parts.push("prep <b>" + meta.prep_ms + "ms</b>");
     return parts.length ? '<div class="meta">' + parts.join(" · ") + "</div>" : "";
   }
   function renderSubtasks(s) {
-    return `<details class="subtasks">
-      <summary>subtask trace</summary>
-      <pre>${escapeHtml(JSON.stringify(s, null, 2))}</pre>
-    </details>`;
+    return `<details class="subtasks"><summary>subtask trace</summary><pre>${escapeHtml(JSON.stringify(s, null, 2))}</pre></details>`;
   }
 
-  // ── send ─────────────────────────────────────────────────────────────
-  async function send() {
-    const text = inputEl.value.trim();
-    if (!text || inflight) return;
-    inflight = true;
-    sendBtn.disabled = true;
-    sendBtn.textContent = "…";
+  function pushMessage(m) {
+    state.messages.push(m); saveState(); render();
+    return state.messages.length - 1;
+  }
+  function updateMessage(i, m) {
+    state.messages[i] = m; saveState(); render();
+  }
 
-    state.messages.push({ role: "user", content: text });
-    inputEl.value = "";
-    autosize();
-    saveState();
-    render();
+  // ─── tabs ──────────────────────────────────────────────────────────
+  function setView(v) {
+    view = v;
+    document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === v));
+    document.querySelectorAll(".view").forEach(d => d.classList.toggle("active", d.id === "view-" + v));
+    $("mode-toggle").style.display = v === "chat" ? "" : "none";
+    if (v === "settings") loadSettings();
+  }
+  document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => setView(t.dataset.tab)));
 
-    const thinkingIdx = state.messages.push({
-      role: "assistant", content: mode === "task" ? "Atlas is dispatching agents…" : "Thinking…",
-      _placeholder: true,
-    }) - 1;
-    render();
+  // ─── mode toggle ───────────────────────────────────────────────────
+  function setMode(m) {
+    mode = m;
+    $("mode-ask").classList.toggle("active",  m === "ask");
+    $("mode-task").classList.toggle("active", m === "task");
+    $("input").placeholder = m === "task"
+      ? "Describe a goal — Atlas will decompose and dispatch...  (/ for commands)"
+      : "Talk to Adonis...  (Shift+Enter for newline, / for commands)";
+  }
+  $("mode-ask").addEventListener("click",  () => setMode("ask"));
+  $("mode-task").addEventListener("click", () => setMode("task"));
 
+  // ─── slash commands ────────────────────────────────────────────────
+  const COMMANDS = [
+    { name: "/help",     desc: "list slash commands" },
+    { name: "/clear",    desc: "clear messages (keep session)" },
+    { name: "/reset",    desc: "new session id + clear messages" },
+    { name: "/health",   desc: "show /health probe" },
+    { name: "/ges",      desc: "show Glasswing Efficiency Scores per agent" },
+    { name: "/audit",    desc: "show last 10 Prometheus decisions" },
+    { name: "/config",   desc: "show full runtime configuration" },
+    { name: "/tools",    desc: "list registered tools" },
+    { name: "/agents",   desc: "list configured agents" },
+    { name: "/mode ask | task", desc: "switch input mode" },
+    { name: "/ask <msg>",  desc: "force ask mode for this turn" },
+    { name: "/task <msg>", desc: "force task mode for this turn" },
+    { name: "/settings", desc: "jump to the Settings tab" },
+  ];
+
+  function showSlashHint(filter) {
+    const list = COMMANDS.filter(c => c.name.startsWith(filter));
+    if (!list.length) { $("slash-hint").classList.remove("show"); return; }
+    $("slash-hint").innerHTML = list.map(c =>
+      `<div class="row"><b>${escapeHtml(c.name)}</b><span>${escapeHtml(c.desc)}</span></div>`
+    ).join("");
+    $("slash-hint").classList.add("show");
+  }
+  function hideSlashHint() { $("slash-hint").classList.remove("show"); }
+
+  function asJsonBlock(obj) { return JSON.stringify(obj, null, 2); }
+
+  async function runSlash(raw) {
+    const parts = raw.trim().split(/\s+/);
+    const cmd = parts[0].toLowerCase();
+    const arg = raw.trim().slice(cmd.length).trim();
+
+    switch (cmd) {
+      case "/help":
+        return pushMessage({ role: "system", content:
+          "Slash commands\n──────────────\n" +
+          COMMANDS.map(c => "  " + c.name.padEnd(22) + c.desc).join("\n") });
+
+      case "/clear":
+        state.messages = []; saveState(); render();
+        return;
+
+      case "/reset":
+        state = { sessionId: newSessionId(), messages: [] }; saveState(); render();
+        return;
+
+      case "/settings":
+        setView("settings"); return;
+
+      case "/mode": {
+        const m = (parts[1] || "").toLowerCase();
+        if (m === "ask" || m === "task") { setMode(m); pushMessage({ role: "system", content: `mode → ${m}` }); }
+        else pushMessage({ role: "error", content: "usage: /mode ask | task" });
+        return;
+      }
+
+      case "/ask":  if (arg) return doAsk(arg); break;
+      case "/task": if (arg) return doTask(arg); break;
+
+      case "/health":
+        return await runFetch("/health");
+      case "/ges":
+        return await runFetch("/ges");
+      case "/audit":
+        return await runFetch("/audit?n=10");
+      case "/config":
+        return await runFetch("/config");
+      case "/tools": {
+        const r = await (await fetch("/config")).json();
+        return pushMessage({ role: "system", content: "Registered tools:\n  " + (r.tools || []).join("\n  ") });
+      }
+      case "/agents": {
+        const r = await (await fetch("/config")).json();
+        return pushMessage({ role: "system", content: "Constructed agents:\n  " + (r.agents || []).join("\n  ") });
+      }
+    }
+
+    pushMessage({ role: "error", content: `unknown command: ${cmd}  — try /help` });
+  }
+
+  async function runFetch(path) {
+    const idx = pushMessage({ role: "system", content: `→ ${path}`, _placeholder: true });
     try {
-      let res, body;
-      if (mode === "ask") {
-        body = { message: text, session_id: state.sessionId };
-        res = await fetch("/ask", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-      } else {
-        body = { goal: text, session_id: state.sessionId, timeout_s: 120 };
-        res = await fetch("/task", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-      }
-      const data = await res.json();
-
-      if (!res.ok) {
-        state.messages[thinkingIdx] = {
-          role: "error",
-          content: data.detail || ("HTTP " + res.status),
-        };
-      } else if (mode === "ask") {
-        state.messages[thinkingIdx] = {
-          role: "assistant",
-          content: data.answer || "(empty answer)",
-          meta: {
-            cache_hit: data.cache_hit,
-            agents: data.agents,
-            think: data.think,
-            tokens: data.tokens,
-            prep_ms: data.efficiency && data.efficiency.prep_ms,
-          },
-        };
-      } else {
-        const r = data.result || {};
-        const synthesis = (typeof r.result === "string")
-          ? r.result
-          : (r.synthesis || JSON.stringify(r, null, 2));
-        state.messages[thinkingIdx] = {
-          role: "assistant",
-          content: synthesis,
-          meta: { agents: [r.agent || "atlas"] },
-          subtasks: r,
-        };
-      }
+      const r = await fetch(path);
+      const data = await r.json();
+      updateMessage(idx, { role: "system", content: `→ ${path}\n${asJsonBlock(data)}` });
     } catch (e) {
-      state.messages[thinkingIdx] = { role: "error", content: String(e) };
-    } finally {
-      inflight = false;
-      sendBtn.disabled = false;
-      sendBtn.textContent = "send";
-      saveState();
-      render();
-      // refresh sidebar after each turn so GES/audit feel live
-      refreshSidebar();
+      updateMessage(idx, { role: "error", content: `${path} failed: ${e}` });
     }
   }
 
-  // ── sidebar polling ──────────────────────────────────────────────────
+  // ─── send ──────────────────────────────────────────────────────────
+  function send() {
+    const text = $("input").value.trim();
+    if (!text || inflight) return;
+    $("input").value = ""; autosize(); hideSlashHint();
+    if (text.startsWith("/")) {
+      pushMessage({ role: "user", content: text });
+      return runSlash(text);
+    }
+    if (mode === "task") return doTask(text);
+    return doAsk(text);
+  }
+
+  async function doAsk(text) {
+    inflight = true; setBusy(true);
+    pushMessage({ role: "user", content: text, badge: "ask" });
+    const placeholderIdx = pushMessage({ role: "assistant", content: "Thinking…", _placeholder: true });
+    try {
+      const res = await fetch("/ask", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, session_id: state.sessionId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        updateMessage(placeholderIdx, { role: "error", content: data.detail || ("HTTP " + res.status) });
+      } else {
+        updateMessage(placeholderIdx, {
+          role: "assistant", content: data.answer || "(empty answer)",
+          meta: {
+            cache_hit: data.cache_hit, agents: data.agents, think: data.think,
+            tokens: data.tokens, prep_ms: data.efficiency && data.efficiency.prep_ms,
+          },
+        });
+      }
+    } catch (e) {
+      updateMessage(placeholderIdx, { role: "error", content: String(e) });
+    } finally {
+      inflight = false; setBusy(false); refreshSidebar();
+    }
+  }
+
+  async function doTask(text) {
+    inflight = true; setBusy(true);
+    pushMessage({ role: "user", content: text, badge: "task" });
+    const placeholderIdx = pushMessage({ role: "assistant", content: "Atlas is dispatching agents…", _placeholder: true });
+    try {
+      const res = await fetch("/task", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ goal: text, session_id: state.sessionId, timeout_s: 120 }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        updateMessage(placeholderIdx, { role: "error", content: data.detail || ("HTTP " + res.status) });
+      } else {
+        const r = data.result || {};
+        const synthesis = (typeof r.result === "string") ? r.result
+                         : (r.synthesis || JSON.stringify(r, null, 2));
+        updateMessage(placeholderIdx, {
+          role: "assistant", content: synthesis,
+          meta: { agents: [r.agent || "atlas"] }, subtasks: r,
+        });
+      }
+    } catch (e) {
+      updateMessage(placeholderIdx, { role: "error", content: String(e) });
+    } finally {
+      inflight = false; setBusy(false); refreshSidebar();
+    }
+  }
+
+  function setBusy(b) {
+    $("send").disabled = b;
+    $("send").textContent = b ? "…" : "send";
+  }
+
+  // ─── sidebar polling ───────────────────────────────────────────────
   function dot(state) {
     if (state === "ok")   return '<span class="dot ok"></span>';
     if (state === "off")  return '<span class="dot off"></span>';
@@ -387,9 +712,7 @@
       $("h-chroma").innerHTML   = dot(h.chroma === "ok" ? "ok" : "off") + (h.chroma || "—");
       $("h-obsidian").innerHTML = dot(h.obsidian === "ok" ? "ok" : "off") + (h.obsidian || "—");
       $("h-audit").innerHTML    = (h.fuse_audit_entries != null ? h.fuse_audit_entries : "—");
-    } catch (e) {
-      $("h-redis").textContent = "unreachable";
-    }
+    } catch (e) { $("h-redis").textContent = "unreachable"; }
   }
 
   async function refreshGes() {
@@ -398,66 +721,150 @@
       const g = await r.json();
       const rows = Object.keys(g).sort().map(name => {
         const v = g[name];
-        return `<span>${escapeHtml(name)}</span><b>${v == null ? "—" : v.toFixed ? v.toFixed(2) : v}</b>`;
+        return `<span>${escapeHtml(name)}</span><b>${v == null ? "—" : (v.toFixed ? v.toFixed(2) : v)}</b>`;
       }).join("");
       $("ges").innerHTML = rows || "<span>—</span><b>no data yet</b>";
-    } catch (e) {
-      $("ges").innerHTML = "<span>—</span><b>unreachable</b>";
-    }
+    } catch (e) { $("ges").innerHTML = "<span>—</span><b>unreachable</b>"; }
   }
 
   async function refreshAudit() {
     try {
       const r = await fetch("/audit?n=8");
       const list = await r.json();
-      if (!list.length) { $("audit").innerHTML = '<div class="row"><span class="lvl">—</span><span>no decisions yet</span></div>'; return; }
+      if (!list.length) {
+        $("audit").innerHTML = '<div class="row"><span class="lvl">—</span><span style="color:var(--muted)">no decisions yet</span></div>';
+        return;
+      }
       $("audit").innerHTML = list.map(a => `
         <div class="row">
-          <span class="lvl ${a.level}">${a.level[0]}</span>
+          <span class="lvl ${a.level}">${(a.level||"?")[0]}</span>
           <span>${escapeHtml(a.agent || "?")}:${escapeHtml(a.action || "?")} <span style="color:var(--muted)">(${a.score || 0})</span></span>
         </div>`).join("");
     } catch (e) {
-      $("audit").innerHTML = '<div class="row"><span class="lvl">!</span><span>unreachable</span></div>';
+      $("audit").innerHTML = '<div class="row"><span class="lvl RED">!</span><span>unreachable</span></div>';
     }
   }
 
-  function refreshSidebar() {
-    refreshHealth(); refreshGes(); refreshAudit();
+  function refreshSidebar() { refreshHealth(); refreshGes(); refreshAudit(); }
+
+  // ─── settings ──────────────────────────────────────────────────────
+  async function loadSettings() {
+    const root = $("settings-render");
+    root.textContent = "Loading…";
+    try {
+      const r = await fetch("/config");
+      const c = await r.json();
+      root.innerHTML = renderSettings(c);
+    } catch (e) {
+      root.innerHTML = `<div class="help" style="border-left-color:var(--red);color:var(--red)">Failed to load /config: ${escapeHtml(String(e))}</div>`;
+    }
   }
 
-  // ── input UX ─────────────────────────────────────────────────────────
+  function pill(state, label) {
+    return `<span class="pill ${state}">${escapeHtml(label)}</span>`;
+  }
+  function rowState(b) { return b ? pill("ok", "ok") : pill("off", "off"); }
+  function chips(list) {
+    if (!list || !list.length) return '<span style="color:var(--muted-2)">none</span>';
+    return '<div class="chiprow">' + list.map(x => `<span class="chip">${escapeHtml(x)}</span>`).join("") + "</div>";
+  }
+
+  function renderSettings(c) {
+    const s = c.system || {}, a = c.auth || {}, sa = c.safety || {}, m = c.memory || {}, mc = c.mcp || {};
+    return `
+      <div class="panel">
+        <h3>System</h3>
+        <div class="table">
+          <div>model</div>            <div>${escapeHtml(s.model || "?")}</div>
+          <div>hermes_port</div>      <div>${s.hermes_port}</div>
+          <div>log_level</div>        <div>${escapeHtml(s.log_level || "?")}</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Authentication</h3>
+        <div class="table">
+          <div>ANTHROPIC_API_KEY</div> <div>${a.anthropic_key_set ? pill("ok", "set") : pill("bad", "missing")} &nbsp; <span style="color:var(--muted)">${escapeHtml(a.anthropic_key_preview || "")}</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Safety — Prometheus fuse</h3>
+        <div class="table">
+          <div>fuse hash pinned</div>  <div>${escapeHtml(sa.fuse_hash_pinned || "?")}</div>
+          <div>fuse hash current</div> <div>${escapeHtml(sa.fuse_hash_current || "?")}</div>
+          <div>integrity</div>         <div>${sa.match ? pill("ok", "match") : pill("bad", "mismatch")}</div>
+          <div>alert webhook</div>     <div>${sa.alert_webhook === "configured" ? pill("ok", "configured") : pill("off", "disabled")}</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Memory</h3>
+        <div class="table">
+          <div>redis url</div>      <div>${escapeHtml(m.redis_url || "")}</div>
+          <div>chroma url</div>     <div>${escapeHtml(m.chroma_url || "")} &nbsp; ${rowState(m.chroma_wired)}</div>
+          <div>obsidian url</div>   <div>${escapeHtml(m.obsidian_url || "")} &nbsp; ${rowState(m.obsidian_wired)}</div>
+          <div>obsidian token</div> <div>${escapeHtml(m.obsidian_token || "")}</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>MCP servers</h3>
+        <div class="table">
+          <div>status</div>  <div>${escapeHtml(mc.status || "?")}</div>
+          <div>servers</div> <div>${chips(mc.servers)}</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Tools registered</h3>
+        ${chips(c.tools)}
+      </div>
+
+      <div class="panel">
+        <h3>Agents</h3>
+        ${chips(c.agents)}
+      </div>
+
+      <div class="help">
+        These values are read-only from the UI. To change them, edit <code>~/adonis/.env</code> on the host
+        and run <code>python3 bootstrap.py --reset &amp;&amp; python3 bootstrap.py --start</code> to apply.
+        Editing <code>prometheus/fuse.py</code> requires re-pinning <code>PROMETHEUS_HASH</code> in <code>.env</code> — the
+        bootstrap wizard offers to do this for you.
+      </div>`;
+  }
+
+  // ─── input UX ──────────────────────────────────────────────────────
   function autosize() {
-    inputEl.style.height = "auto";
-    inputEl.style.height = Math.min(200, inputEl.scrollHeight) + "px";
+    const el = $("input");
+    el.style.height = "auto";
+    el.style.height = Math.min(220, el.scrollHeight) + "px";
   }
-  inputEl.addEventListener("input", autosize);
-  inputEl.addEventListener("keydown", (e) => {
+  $("input").addEventListener("input", () => {
+    autosize();
+    const v = $("input").value;
+    if (v.startsWith("/") && !v.includes(" ")) showSlashHint(v);
+    else hideSlashHint();
+  });
+  $("input").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+    else if (e.key === "Escape") hideSlashHint();
   });
-  sendBtn.addEventListener("click", send);
+  $("input").addEventListener("blur", () => setTimeout(hideSlashHint, 120));
+  $("send").addEventListener("click", send);
 
-  // ── mode toggle ──────────────────────────────────────────────────────
-  function setMode(m) {
-    mode = m;
-    modeAsk.classList.toggle("active",  m === "ask");
-    modeTask.classList.toggle("active", m === "task");
-    inputEl.placeholder = m === "task"
-      ? "Describe a goal (Atlas will decompose and dispatch)..."
-      : "Talk to Adonis... (Shift+Enter for newline)";
-  }
-  modeAsk.addEventListener("click",  () => setMode("ask"));
-  modeTask.addEventListener("click", () => setMode("task"));
-
-  resetBtn.addEventListener("click", () => {
-    if (confirm("Clear conversation and start a new session?")) resetSession();
+  $("reset-btn").addEventListener("click", () => {
+    if (confirm("Clear conversation and start a new session?")) {
+      state = { sessionId: newSessionId(), messages: [] }; saveState(); render();
+    }
   });
 
-  // ── boot ─────────────────────────────────────────────────────────────
+  // ─── boot ──────────────────────────────────────────────────────────
   render();
   refreshSidebar();
   setInterval(refreshHealth, 15000);
   setInterval(() => { refreshGes(); refreshAudit(); }, 5000);
-  inputEl.focus();
+  $("input").focus();
 })();
 </script>
 
