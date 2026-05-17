@@ -15,18 +15,22 @@ services:
   adonis:
     build:
       context: .
-      # Build-time only. Some hosts (notably Fedora with firewalld+nftables) don't
-      # MASQUERADE the docker bridge by default, so pip can't reach PyPI from
-      # inside the build container. Using the host network namespace just for
-      # the build avoids that dance; runtime networking is unaffected.
       network: host
     depends_on: [redis, chromadb]
     env_file: .env
+    # Run on the host's network namespace. Reason: many distros (Fedora with
+    # firewalld+nftables in particular) put docker0 in a permissive zone but
+    # leave the per-project bridge (br-XXXX, created by compose) outside it,
+    # so outbound traffic from the project network isn't masqueraded and
+    # api.anthropic.com is unreachable. Host networking sidesteps the whole
+    # firewall dance — and redis/chromadb publish their ports to the host
+    # anyway, so adonis still reaches them via localhost.
+    network_mode: host
     environment:
-      - REDIS_URL=redis://redis:6379
-      - CHROMA_URL=http://chromadb:8000
+      - REDIS_URL=redis://localhost:6379
+      - CHROMA_URL=http://localhost:8000
       - HERMES_PORT=8088
-    ports: ["8088:8088"]
+    # No `ports:` — host networking publishes :8088 directly.
     volumes:
       - ./adonis-vault:/vault
       - ./prometheus:/app/prometheus:ro
