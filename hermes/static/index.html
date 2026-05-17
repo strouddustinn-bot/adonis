@@ -37,7 +37,8 @@
     --shadow-glow: 0 0 24px var(--accent-glow);
   }
   * { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; }
+  html { height: 100%; }
+  html, body { margin: 0; }
   body {
     background:
       radial-gradient(ellipse 80% 50% at 50% -10%, #1f6feb12, transparent 70%),
@@ -46,10 +47,12 @@
     color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Helvetica, Arial, sans-serif;
     font-size: 14px; line-height: 1.55;
-    display: grid;
-    grid-template-rows: 60px 1fr;
-    min-height: 0;
-    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
   ::selection { background: var(--accent-glow); }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -65,7 +68,8 @@
     -webkit-backdrop-filter: blur(12px);
     display: flex; align-items: center; gap: 18px;
     padding: 0 22px;
-    z-index: 10;
+    height: 60px; flex-shrink: 0;
+    position: sticky; top: 0; z-index: 10;
   }
   .logo {
     font-size: 15px; font-weight: 700; letter-spacing: 0.16em;
@@ -116,23 +120,31 @@
 
   /* ─── Main ─────────────────────────────────────────────────────────── */
   main {
-    overflow: hidden;
-    min-height: 0;
-    display: contents;
+    flex: 1; min-height: 0; display: flex; flex-direction: column;
   }
-  .view { display: none; min-height: 0; overflow: hidden; }
+  .view { display: none; flex: 1; min-height: 0; }
   .view.active { display: grid; }
 
   /* ─── Chat view ────────────────────────────────────────────────────── */
-  #view-chat { grid-template-columns: minmax(0, 1fr) 320px; min-height: 0; }
+  /* On desktop the chat fills the viewport and messages scroll internally;
+     on narrow screens this collapses to a single column and the whole page
+     scrolls naturally instead. */
+  #view-chat {
+    grid-template-columns: minmax(0, 1fr) 320px;
+    min-height: 0;
+    height: calc(100vh - 60px);
+    height: calc(100dvh - 60px);
+  }
   .chat {
     display: flex; flex-direction: column; min-width: 0; min-height: 0;
     border-right: 1px solid var(--border);
+    overflow: hidden;
   }
   .messages {
     flex: 1; min-height: 0; overflow-y: auto;
     padding: 24px 28px;
     scroll-behavior: smooth;
+    overscroll-behavior: contain;
   }
   .empty {
     color: var(--muted); text-align: center; margin-top: 60px;
@@ -291,8 +303,9 @@
   @keyframes pulse { 0%,100% { opacity: 0.3; transform: scale(0.85); } 50% { opacity: 1; transform: scale(1); } }
 
   /* ─── Settings view ────────────────────────────────────────────────── */
+  /* No fixed height — settings just flows down the page; the body scrolls. */
   #view-settings { grid-template-columns: minmax(0, 1fr); }
-  .settings-scroll { overflow-y: auto; padding: 28px 40px; min-height: 0; }
+  .settings-scroll { padding: 28px 40px; }
   .settings-inner { max-width: 920px; margin: 0 auto; }
   .settings-inner h1 {
     font-size: 22px; margin: 0 0 6px;
@@ -342,7 +355,14 @@
 
   /* ─── Mobile ───────────────────────────────────────────────────────── */
   @media (max-width: 860px) {
-    #view-chat { grid-template-columns: minmax(0, 1fr); }
+    /* Drop the internal chat scroller — let the whole page scroll instead.
+       Messages flow with the body; the input stays at the bottom of the flow. */
+    #view-chat {
+      grid-template-columns: minmax(0, 1fr);
+      height: auto;
+    }
+    .chat { overflow: visible; }
+    .messages { overflow-y: visible; max-height: none; }
     aside { display: none; }
     .empty .hints { font-size: 11px; }
     .settings-scroll { padding: 20px 16px; }
