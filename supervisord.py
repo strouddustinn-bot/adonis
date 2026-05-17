@@ -134,11 +134,30 @@ async def _amain() -> int:
     ))
     tasks.append(asyncio.create_task(server.serve(), name="hermes:api"))
     log.info("Hermes API serving on :%d", api_port)
+
+    # Telegram long-polling bridge (optional — only starts if a token is set).
+    tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    tg_bridge = None
+    if tg_token:
+        from hermes.telegram import TelegramBridge
+        allowed = [int(x) for x in os.getenv("TELEGRAM_ALLOWED_USER_IDS", "").split(",") if x.strip().isdigit()]
+        tg_bridge = TelegramBridge(
+            token=tg_token, allowed_user_ids=allowed,
+            governor=governor, llm=llm,
+            model=os.getenv("ADONIS_MODEL", "claude-sonnet-4-6"),
+            redis=redis,
+        )
+        tasks.append(asyncio.create_task(tg_bridge.run(), name="telegram"))
+        log.info("Telegram bridge enabled (allowlist size=%d).", len(allowed))
+    else:
+        log.info("Telegram bridge disabled (TELEGRAM_BOT_TOKEN unset).")
+
     log.info("Awaiting shutdown signal.")
 
     await stop.wait()
     log.info("Shutdown signal received.")
     server.should_exit = True
+    if tg_bridge: tg_bridge.stop()
     for a in agents:
         a.stop()
     for t in tasks:
