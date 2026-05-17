@@ -6,3 +6,8 @@ python-dotenv>=1.0.0
 fastapi>=0.110.0
 uvicorn[standard]>=0.27.0
 pydantic>=2.0.0
+# Structured fact graph: SQLite (stdlib) + LanceDB for vector recall.
+# sentence-transformers gives LanceDB local embeddings (no API calls); if it
+# fails to install or load at runtime the graph still works without vectors.
+lancedb>=0.13.0
+sentence-transformers>=3.0.0

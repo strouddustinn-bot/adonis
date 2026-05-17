@@ -43,6 +43,20 @@ class TaskIn(BaseModel):
     timeout_s:  int = 60
 
 
+class FactIn(BaseModel):
+    entity:       str
+    attribute:    str
+    value:        str
+    confidence:   float = 0.9
+    source_agent: str   = "user"
+    session_id:   str   = ""
+
+
+class ResolveIn(BaseModel):
+    fact_id: int
+    keep:    str  # "new" | "old" | "both"
+
+
 def build_app(*, llm, redis, fuse, governor, model: str) -> FastAPI:
     app = FastAPI(title="Adonis Hermes", version="1.0")
 
@@ -225,6 +239,45 @@ def build_app(*, llm, redis, fuse, governor, model: str) -> FastAPI:
             "tools": REGISTRY.names(),
             "agents": agent_names,
         }
+
+    # ── Fact graph (structured memory) ──────────────────────────────────
+    def _fg():
+        fg = getattr(governor, "fact_graph", None)
+        if fg is None:
+            raise HTTPException(status_code=503, detail="fact graph not initialised")
+        return fg
+
+    @app.get("/facts")
+    async def facts_recent(n: int = 30):
+        return await _fg().recent(n=min(max(n, 1), 200))
+
+    @app.get("/facts/conflicts")
+    async def facts_conflicts(n: int = 50):
+        return await _fg().conflicts(n=min(max(n, 1), 200))
+
+    @app.get("/facts/stats")
+    async def facts_stats():
+        return await _fg().stats()
+
+    @app.get("/facts/entity/{name}")
+    async def facts_entity(name: str, n: int = 50):
+        return await _fg().query(entity=name, n=min(max(n, 1), 200))
+
+    @app.get("/facts/search")
+    async def facts_search(q: str, n: int = 20):
+        return await _fg().query(text=q, n=min(max(n, 1), 200))
+
+    @app.post("/facts")
+    async def facts_add(body: FactIn):
+        return await _fg().add(
+            body.entity, body.attribute, body.value,
+            confidence=body.confidence, source_agent=body.source_agent,
+            session_id=body.session_id,
+        )
+
+    @app.post("/facts/resolve")
+    async def facts_resolve(body: ResolveIn):
+        return await _fg().resolve_conflict(body.fact_id, keep=body.keep)
 
     # ── Web UI ───────────────────────────────────────────────────────────
     if STATIC_DIR.is_dir():

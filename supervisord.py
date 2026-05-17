@@ -21,6 +21,7 @@ from anthropic import AsyncAnthropic
 from glasswing.governor import GlasswingGovernor
 from prometheus.fuse import PrometheusFuse
 from memory.obsidian_bridge import ObsidianBridge
+from memory.fact_graph import FactGraph
 from tools.builtin import register_builtins
 from tools.mcp_client import attach_mcp_servers, detach_mcp_servers
 
@@ -88,6 +89,13 @@ async def _amain() -> int:
     fuse = PrometheusFuse(llm, redis, obsidian_bridge=obsidian)
     governor = GlasswingGovernor(llm, redis, chroma_client=chroma, obsidian_bridge=obsidian)
 
+    fact_graph = FactGraph(
+        db_path=os.getenv("FACTS_DB", "/vault/facts.db"),
+        vector_path=os.getenv("FACTS_VECTOR", "/vault/facts.lance"),
+    )
+    await fact_graph.startup()
+    governor.fact_graph = fact_graph  # attach so every agent can reach it via self.governor
+
     register_builtins(obsidian=obsidian)
     mcp_servers = await attach_mcp_servers()
 
@@ -137,6 +145,7 @@ async def _amain() -> int:
         t.cancel()
     await asyncio.gather(*tasks, return_exceptions=True)
     await detach_mcp_servers(mcp_servers)
+    await fact_graph.shutdown()
     await redis.aclose()
     log.info("Clean shutdown.")
     return 0

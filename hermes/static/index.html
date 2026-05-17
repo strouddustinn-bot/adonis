@@ -352,6 +352,39 @@
     background: var(--bg-0); padding: 2px 6px; border-radius: 4px;
     font-family: var(--mono); font-size: 12px; color: var(--text);
   }
+  .input-line {
+    flex: 1; background: var(--bg-0); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 9px 12px; font-size: 13px; font-family: inherit;
+  }
+  .input-line:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+  .fact-row {
+    display: grid; grid-template-columns: 1fr 1fr 1.4fr 80px 70px;
+    gap: 10px; padding: 10px 8px; border-bottom: 1px solid var(--border);
+    align-items: center; font-size: 12.5px; font-family: var(--mono);
+  }
+  .fact-row:last-child { border-bottom: 0; }
+  .fact-row .ent  { color: var(--accent); font-weight: 500; }
+  .fact-row .attr { color: var(--muted); }
+  .fact-row .val  { color: var(--text); word-break: break-word; }
+  .fact-row .conf { color: var(--muted); text-align: right; font-size: 11.5px; }
+  .fact-row .src  { color: var(--muted-2); text-align: right; font-size: 11px; }
+  .fact-row.conflict {
+    background: var(--red-soft); border-left: 3px solid var(--red);
+    padding-left: 12px; border-radius: 4px; margin: 4px 0;
+  }
+  .resolve-btns { display: flex; gap: 6px; grid-column: 1 / -1; padding-top: 6px; }
+  .resolve-btns button {
+    background: var(--bg-3); color: var(--text); border: 1px solid var(--border);
+    padding: 4px 10px; border-radius: 5px; font-size: 11px; cursor: pointer;
+    font-family: var(--mono);
+  }
+  .resolve-btns button:hover { border-color: var(--accent); color: var(--accent); }
+  .empty-line { color: var(--muted-2); font-size: 12px; padding: 14px; text-align: center; }
+  @media (max-width: 860px) {
+    .fact-row { grid-template-columns: 1fr 1fr; gap: 6px; }
+    .fact-row .conf, .fact-row .src { text-align: left; }
+  }
 
   /* ─── Mobile ───────────────────────────────────────────────────────── */
   @media (max-width: 860px) {
@@ -376,6 +409,7 @@
   <span class="logo">ADONIS</span>
   <nav class="tabs" role="tablist">
     <button class="tab active" data-tab="chat">Chat</button>
+    <button class="tab" data-tab="memory">Memory</button>
     <button class="tab" data-tab="settings">Settings</button>
   </nav>
   <div class="grow"></div>
@@ -438,6 +472,44 @@
         </div></div>
       </section>
     </aside>
+  </div>
+
+  <!-- ─── Memory view ─────────────────────────────────────────────── -->
+  <div class="view" id="view-memory">
+    <div class="settings-scroll">
+      <div class="settings-inner">
+        <h1>Memory</h1>
+        <p>Structured fact graph. Three layers: LRU (hot) → SQLite (structured + JSON) → LanceDB (vector). Conflicts are detected on every write and surfaced here for human review.</p>
+
+        <div class="panel">
+          <h3>Stats</h3>
+          <div id="mem-stats" class="table"><div>—</div><div>loading…</div></div>
+        </div>
+
+        <div class="panel">
+          <h3>Search</h3>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <input id="mem-search" class="input-line" placeholder="search facts (semantic if LanceDB is on, substring otherwise)" />
+            <button id="mem-search-btn" class="icon-btn">search</button>
+            <button id="mem-clear-btn" class="icon-btn">recent</button>
+          </div>
+          <div id="mem-results" style="margin-top:14px"></div>
+        </div>
+
+        <div class="panel" id="mem-conflicts-panel">
+          <h3>Conflicts <span id="mem-conflicts-count" style="color:var(--red); margin-left:6px; font-family:var(--mono); font-size:11px"></span></h3>
+          <div id="mem-conflicts"></div>
+        </div>
+
+        <div class="help">
+          Facts are populated automatically: every time an agent succeeds at a task, the
+          extractor pulls durable facts from the result and feeds them through the conflict
+          resolver. You can also add facts manually via
+          <code>POST /facts</code>, and settle conflicts via
+          <code>POST /facts/resolve</code> or the buttons above.
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ─── Settings view ───────────────────────────────────────────── -->
@@ -534,6 +606,7 @@
     document.querySelectorAll(".view").forEach(d => d.classList.toggle("active", d.id === "view-" + v));
     $("mode-toggle").style.display = v === "chat" ? "" : "none";
     if (v === "settings") loadSettings();
+    if (v === "memory")   loadMemory();
   }
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => setView(t.dataset.tab)));
 
@@ -560,9 +633,12 @@
     { name: "/config",   desc: "show full runtime configuration" },
     { name: "/tools",    desc: "list registered tools" },
     { name: "/agents",   desc: "list configured agents" },
+    { name: "/facts",    desc: "show recent active facts from the graph" },
+    { name: "/conflicts",desc: "show flagged memory conflicts" },
     { name: "/mode ask | task", desc: "switch input mode" },
     { name: "/ask <msg>",  desc: "force ask mode for this turn" },
     { name: "/task <msg>", desc: "force task mode for this turn" },
+    { name: "/memory",   desc: "jump to the Memory tab" },
     { name: "/settings", desc: "jump to the Settings tab" },
   ];
 
@@ -599,6 +675,12 @@
 
       case "/settings":
         setView("settings"); return;
+      case "/memory":
+        setView("memory"); return;
+      case "/facts":
+        return await runFetch("/facts?n=10");
+      case "/conflicts":
+        return await runFetch("/facts/conflicts?n=10");
 
       case "/mode": {
         const m = (parts[1] || "").toLowerCase();
@@ -766,6 +848,91 @@
   }
 
   function refreshSidebar() { refreshHealth(); refreshGes(); refreshAudit(); }
+
+  // ─── memory tab ────────────────────────────────────────────────────
+  async function loadMemory() {
+    await Promise.all([refreshMemStats(), showRecentFacts(), refreshConflicts()]);
+  }
+  async function refreshMemStats() {
+    try {
+      const r = await fetch("/facts/stats");
+      const s = await r.json();
+      const counts = s.counts || {};
+      $("mem-stats").innerHTML = `
+        <div>active facts</div>      <div>${counts.active || 0}</div>
+        <div>conflicts</div>         <div>${counts.conflict || 0}</div>
+        <div>superseded</div>        <div>${counts.superseded || 0}</div>
+        <div>distinct entities</div> <div>${s.total_entities || 0}</div>
+        <div>vector index</div>      <div>${escapeHtml(s.vector_index || "?")}</div>
+        <div>lru size</div>          <div>${s.lru_size || 0}</div>`;
+    } catch (e) {
+      $("mem-stats").innerHTML = `<div>—</div><div style="color:var(--red)">${escapeHtml(String(e))}</div>`;
+    }
+  }
+  function renderFactRows(facts, conflict = false) {
+    if (!facts || !facts.length) return '<div class="empty-line">no facts</div>';
+    return facts.map(f => `
+      <div class="fact-row${conflict ? " conflict" : ""}">
+        <span class="ent">${escapeHtml(f.entity)}</span>
+        <span class="attr">${escapeHtml(f.attribute)}</span>
+        <span class="val">${escapeHtml(String(f.value).slice(0, 200))}</span>
+        <span class="conf">conf ${(f.confidence || 0).toFixed(2)}</span>
+        <span class="src">${escapeHtml(f.source_agent || "")}</span>
+        ${conflict ? `
+          <div class="resolve-btns">
+            <button data-id="${f.id}" data-keep="new">keep new</button>
+            <button data-id="${f.id}" data-keep="old">keep old</button>
+            <button data-id="${f.id}" data-keep="both">drop both</button>
+          </div>` : ""}
+      </div>`).join("");
+  }
+  async function showRecentFacts() {
+    try {
+      const r = await fetch("/facts?n=30");
+      const facts = await r.json();
+      $("mem-results").innerHTML = renderFactRows(facts);
+    } catch (e) {
+      $("mem-results").innerHTML = `<div class="empty-line" style="color:var(--red)">${escapeHtml(String(e))}</div>`;
+    }
+  }
+  async function searchMemory() {
+    const q = $("mem-search").value.trim();
+    if (!q) { showRecentFacts(); return; }
+    try {
+      const r = await fetch("/facts/search?q=" + encodeURIComponent(q) + "&n=30");
+      $("mem-results").innerHTML = renderFactRows(await r.json());
+    } catch (e) {
+      $("mem-results").innerHTML = `<div class="empty-line" style="color:var(--red)">${escapeHtml(String(e))}</div>`;
+    }
+  }
+  async function refreshConflicts() {
+    try {
+      const r = await fetch("/facts/conflicts?n=50");
+      const list = await r.json();
+      $("mem-conflicts-count").textContent = list.length ? `(${list.length})` : "";
+      $("mem-conflicts").innerHTML = renderFactRows(list, true);
+      $("mem-conflicts").querySelectorAll("button[data-id]").forEach(b => {
+        b.addEventListener("click", async () => {
+          const id = parseInt(b.dataset.id, 10), keep = b.dataset.keep;
+          try {
+            await fetch("/facts/resolve", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ fact_id: id, keep }),
+            });
+            refreshConflicts(); refreshMemStats(); showRecentFacts();
+          } catch (e) { alert("resolve failed: " + e); }
+        });
+      });
+    } catch (e) {
+      $("mem-conflicts").innerHTML = `<div class="empty-line" style="color:var(--red)">${escapeHtml(String(e))}</div>`;
+    }
+  }
+  // wire memory tab inputs after DOM exists
+  document.addEventListener("DOMContentLoaded", () => {
+    $("mem-search-btn")?.addEventListener("click", searchMemory);
+    $("mem-search")?.addEventListener("keydown", e => { if (e.key === "Enter") searchMemory(); });
+    $("mem-clear-btn")?.addEventListener("click", () => { $("mem-search").value = ""; showRecentFacts(); });
+  });
 
   // ─── settings ──────────────────────────────────────────────────────
   async function loadSettings() {

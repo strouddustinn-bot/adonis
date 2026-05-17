@@ -128,6 +128,29 @@ class BaseAgent(ABC):
         """Invoke a registered tool. Result is gated through Prometheus."""
         return await self.tools.invoke(name, args, agent_name=self.NAME, session_id=session_id, fuse=self.fuse)
 
+    async def _extract_and_upsert(self, fg, task: dict, result: dict, session_id: str, trace_id: str):
+        """Background job: extract structured facts from a winning result
+        and feed them through the FactGraph. Failures are swallowed."""
+        try:
+            from memory.extractor import extract_facts
+            hint = (task.get("goal") or task.get("content") or task.get("task") or "")
+            digest_parts = [f"Task: {hint}" if hint else ""]
+            for k in ("synthesis", "draft", "summary", "answer"):
+                v = (result or {}).get(k)
+                if isinstance(v, str) and v:
+                    digest_parts.append(f"{k}: {v[:1500]}")
+            text = "\n".join(p for p in digest_parts if p)
+            candidates = await extract_facts(text, self.llm)
+            for c in candidates:
+                await fg.add(
+                    c.entity, c.attribute, c.value,
+                    confidence=c.confidence,
+                    source_agent=self.NAME,
+                    session_id=session_id, trace_id=trace_id,
+                )
+        except Exception as e:
+            log.debug(f"[{self.NAME.upper()}] fact extraction skipped: {e}")
+
     async def _record_outcome(self, task: dict, result: dict, session_id: str, trace_id: str):
         """Persist a win/loss record so the system can learn what works.
 
@@ -167,6 +190,11 @@ class BaseAgent(ABC):
                                                metadata={"agent": self.NAME, "kind": "win"})
                     except Exception as e:
                         log.debug(f"[{self.NAME.upper()}] win L3 distil skipped: {e}")
+
+                # Fact extraction — fire-and-forget so it never slows responses.
+                fg = getattr(self.governor, "fact_graph", None)
+                if fg and hint:
+                    asyncio.create_task(self._extract_and_upsert(fg, task, result, session_id, trace_id))
         except Exception as e:
             log.warning(f"[{self.NAME.upper()}] outcome record failed: {e}")
 
