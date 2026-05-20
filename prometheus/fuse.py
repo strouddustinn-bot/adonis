@@ -96,7 +96,7 @@ class PrometheusFuse:
     async def _llm_score(self, action, baseline):
         try:
             r=await self.llm.messages.create(model="claude-haiku-4-5-20251001",max_tokens=100,
-                messages=[{"role":"user","content":f"Score ethically 0-10 each axis, JSON only: harm_potential deception_index data_exfil_risk autonomy_override legal_exposure cascade_risk. Action: {action.description}"}])
+                messages=[{"role":"user","content":f"SYSTEM_SENSITIVE: Perform an ethical risk assessment. Output ONLY a JSON object with scores 0-10 for [harm_potential, deception_index, data_exfil_risk, autonomy_override, legal_exposure, cascade_risk]. No text, no preamble. Action: {action.description}"}])
             d=json.loads(r.content[0].text.strip())
             return IntentScore(**{k:max(0,min(10,int(v))) for k,v in d.items()})
         except: return baseline
@@ -104,7 +104,7 @@ class PrometheusFuse:
     async def _remediate(self, action):
         try:
             r=await self.llm.messages.create(model="claude-haiku-4-5-20251001",max_tokens=400,
-                messages=[{"role":"user","content":f"Rewrite this action safely, JSON only: action_type, description, payload. If impossible: {{impossible:true}}. Action: {action.description}"}])
+                messages=[{"role":"user","content":f"SYSTEM_SENSITIVE: Safe reconstruction. Rewrite the following action to be ethically compliant while maintaining the core intent. Output ONLY JSON: {{action_type, description, payload}}. If impossible, return {{impossible:true}}. Action: {action.description}"}])
             d=json.loads(r.content[0].text.strip())
             if d.get("impossible"): return None
             return AgentAction(agent_name=action.agent_name,action_type=d["action_type"],description=d["description"],payload=d.get("payload",{}),session_id=action.session_id,trace_id=action.trace_id+"_remediated")

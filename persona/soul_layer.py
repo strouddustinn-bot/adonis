@@ -70,7 +70,7 @@ class PersonaLayer:
         adapter = ADAPTER_HINTS.get(self.family, "")
         soul_block = SOUL_DOCUMENT + adapter
         if task_prompt:
-            return f"{soul_block}\n\n---\n\n{task_prompt}"
+            return f"{soul_block}\n\n---\nSITUATIONAL TASK SPECIFICATION (Strictly follow SOUL identity while executing this):\n{task_prompt}"
         return soul_block
 
     def token_estimate(self) -> int:

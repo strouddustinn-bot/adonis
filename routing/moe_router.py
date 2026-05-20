@@ -73,9 +73,11 @@ class MoERouter:
         # Score each specialist
         scores: dict[str, float] = {}
         for a in special:
+            # Direct match + stemming approximation (simple)
             hits = sum(1 for d in a.domains if any(d in w or w in d for w in words))
             if hits:
-                scores[a.name] = hits / a.cost_weight  # prefer cheaper agents at equal score
+                # Score based on hit density vs cost weight
+                scores[a.name] = (hits * 10) / a.cost_weight
 
         # Select top-k
         top = sorted(scores, key=scores.get, reverse=True)[:self.TOP_K_SPECIALISTS]

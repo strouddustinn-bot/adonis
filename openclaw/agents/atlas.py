@@ -9,6 +9,7 @@ via Redis pub/sub, collects results, and assembles the final response.
 Uses asyncio.gather() for parallel independent sub-tasks (Glasswing rule #3).
 """
 import os, json, logging, asyncio, uuid
+from routing.planner import HierarchicalPlanner
 from openclaw.base_agent import BaseAgent
 from openclaw.contracts import Contract, ContractIn, ContractOut
 
@@ -27,6 +28,9 @@ class AtlasOrchestrateOut(ContractOut):
 
 
 class AtlasAgent(BaseAgent):
+    def __init__(self, llm, tool_proxy=None):
+        super().__init__(llm, tool_proxy)
+        self.planner = HierarchicalPlanner(llm)
     NAME    = "atlas"
     DOMAINS = ["orchestration","planning","task","manage","decompose","goal","coordinate","multi"]
     # Atlas dispatches; it doesn't directly hit external resources.
@@ -40,37 +44,33 @@ class AtlasAgent(BaseAgent):
         ),
     ]
 
+
     async def handle(self, task: dict, session_id: str) -> dict:
-        goal = task.get("goal") or task.get("content","")
+        goal = task.get("goal") or task.get("content", "")
         if not goal:
-            return {"status":"error","reason":"No goal provided","agent":self.NAME}
+            return {"status": "error", "reason": "No goal provided", "agent": self.NAME}
 
-        # Decompose goal into sub-tasks
-        subtasks = await self._decompose(goal, session_id)
-        if not subtasks:
-            return {"status":"error","reason":"Could not decompose goal","agent":self.NAME}
+        # Decompose goal into a Plan with subgoals and verification outcomes
+        plan = await self.planner.decompose(goal)
+        log.info(f"[ATLAS] Decomposed goal into {len(plan.subgoals)} verifiable subgoals for session {session_id}")
 
-        log.info(f"[ATLAS] Decomposed into {len(subtasks)} subtasks for session {session_id}")
+        # Define a wrapper that maps Planner's Subgoal -> Atlas's _dispatch
+        async def executor(subgoal):
+            # Try to find a matching contract from the planner's description
+            # In a production version, the Planner would output the contract name directly.
+            # For now, we'll map the description to a "default" contract or use the logic in _decompose.
+            # Since we are integrating, we'll simplify: we'll treat the subgoal description as the task.
+            res = await self._dispatch({"id": f"sg{subgoal.id}", "contract": "forge.draft_post", "task": subgoal.description, "args": {"content": subgoal.description}}, session_id)
+            return res.get("result", res)
 
-        # Dispatch independent tasks in parallel
-        independent = [s for s in subtasks if not s.get("depends_on")]
-        dependent   = [s for s in subtasks if s.get("depends_on")]
+        try:
+            results = await self.planner.execute_with_checkpoints(plan, executor)
+            synthesis = await self._synthesise(goal, {f"sg{i}": r for i, r in enumerate(results)})
+            return {"status": "ok", "goal": goal, "subtasks": len(plan.subgoals), "synthesis": synthesis, "agent": self.NAME}
+        except Exception as e:
+            log.error(f"[ATLAS] Hierarchical execution failed: {e}")
+            return {"status": "error", "reason": str(e), "agent": self.NAME}
 
-        results = {}
-        if independent:
-            dispatched = await asyncio.gather(*[self._dispatch(s, session_id) for s in independent])
-            for s, r in zip(independent, dispatched):
-                results[s["id"]] = r
-
-        # Sequential for dependent tasks
-        for s in dependent:
-            dep_result = results.get(s["depends_on"], {})
-            s["context"] = dep_result
-            results[s["id"]] = await self._dispatch(s, session_id)
-
-        # Synthesise final response
-        synthesis = await self._synthesise(goal, results)
-        return {"status":"ok","goal":goal,"subtasks":len(subtasks),"synthesis":synthesis,"agent":self.NAME}
 
     async def _decompose(self, goal: str, session_id: str) -> list[dict]:
         # Show Atlas the contract catalog so it picks a specific contract

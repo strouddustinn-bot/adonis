@@ -13,7 +13,7 @@ Per-call pipeline (in order):
 
 Glasswing rule: if an answer exists in Redis/Obsidian in <200ms, the LLM is never called.
 """
-import os, json, logging, time, asyncio
+import os, json, logging, time, asyncio, hashlib
 from dataclasses import dataclass, field
 
 log = logging.getLogger("glasswing")
@@ -66,7 +66,8 @@ class GlasswingGovernor:
         start = time.monotonic()
 
         # 1. Cache check — never call LLM for identical recent queries
-        cache_key = f"glasswing:cache:{hash(user_message) % 10**10}"
+        h_val = int(hashlib.blake2b(user_message.encode(), digest_size=8).hexdigest(), 16)
+        cache_key = f"glasswing:cache:{h_val % 10**10}"
         cached = await self.redis.get(cache_key)
         if cached:
             log.debug(f"[GW] Cache hit for session {session_id} ({time.monotonic()-start:.3f}s)")
@@ -100,7 +101,8 @@ class GlasswingGovernor:
 
     async def cache_result(self, user_message: str, result: str):
         """Store LLM result for future cache hits."""
-        key = f"glasswing:cache:{hash(user_message) % 10**10}"
+        h_val = int(hashlib.blake2b(user_message.encode(), digest_size=8).hexdigest(), 16)
+        key = f"glasswing:cache:{h_val % 10**10}"
         await self.redis.setex(key, self.CACHE_TTL, result)
 
     def record_ges(self, session_id: str, agents: list[str], tokens_used: int, tasks_done: int, cache_hit: bool = False, speed_ms: int = 0):

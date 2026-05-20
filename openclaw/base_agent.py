@@ -15,14 +15,20 @@ All actions must pass through self.evaluate_action() before execution.
 import asyncio
 import json
 import logging
-import os
+from typing import Optional
+from tools.registry import ToolRegistry, ToolProxy
+from observability.tracer import get_tracer
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 
 log = logging.getLogger("base_agent")
 
-class BaseAgent(ABC):
+class BaseAgent:
+    def __init__(self, llm, tool_proxy=None):
+        self.tracer = get_tracer()
+        self.llm = llm
+        self.tool_proxy = tool_proxy
     """
     Subclass example:
         class MyAgent(BaseAgent):
