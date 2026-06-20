@@ -39,7 +39,7 @@ class HierarchicalPlanner:
         self.verifier = verifier_fn or self._default_llm_verifier
 
     async def decompose(self, goal: str) -> Plan:
-        \"\"\"Breaks a high-level goal into a sequence of verifiable subgoals.\"\"\"
+        """Breaks a high-level goal into a sequence of verifiable subgoals."""
         prompt = (
             f"Decompose the following goal into a sequence of strictly verifiable subgoals.\n"
             f"Goal: {goal}\n\n"
@@ -64,7 +64,7 @@ class HierarchicalPlanner:
             return Plan(goal=goal, subgoals=[Subgoal(id=0, description=goal, expected_outcome="Goal achieved")])
 
     async def _default_llm_verifier(self, subgoal: Subgoal, result: Any) -> tuple[VerificationStatus, float]:
-        \"\"\"Lightweight LLM judge for verification.\"\"\"
+        """Lightweight LLM judge for verification."""
         prompt = (
             f"Subgoal: {subgoal.description}\n"
             f"Expected Outcome: {subgoal.expected_outcome}\n"
@@ -86,10 +86,10 @@ class HierarchicalPlanner:
             return VerificationStatus.AMBIGUOUS, 0.0
 
     async def execute_with_checkpoints(self, plan: Plan, executor_fn: Callable):
-        \"\"\"
+        """
         Executes the plan and verifies every step.
         If a checkpoint fails, it triggers a recovery logic.
-        \"\"\"
+        """
         for subgoal in plan.subgoals:
             subgoal.status = "in_progress"
             log.info(f"[PLANNER] Executing Subgoal {subgoal.id}: {subgoal.description}")
@@ -129,11 +129,11 @@ class HierarchicalPlanner:
         return [sg.result for sg in plan.subgoals]
 
     async def _trigger_recovery(self, subgoal: Subgoal, failed_result: Any):
-        \"\"\"
+        """
         Recovery Logic:
         1. Rephrase: Try the same subgoal with a refined prompt.
         2. Escalate: Ask the Orchestrator (Atlas) for a new approach.
-        \"\"\"
+        """
         log.info(f"[RECOVERY] Attempting to rescue Subgoal {subgoal.id}")
         # For this implementation, we perform a 'Rephrase' using the LLM to suggest a better way to execute the subgoal
         prompt = (

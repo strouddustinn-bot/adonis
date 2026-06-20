@@ -105,7 +105,7 @@ class MoERouter:
                 "think_overhead":  {"off":"0 tokens","shallow":"~200 tokens","deep":"~1000 tokens"}[depth.value],
             }
         )
-        log.info(f"[MOE] Routing: {active} | think={depth.value} | saved {result.efficiency["compute_saved"]}")
+        log.info(f"[MOE] Routing: {active} | think={depth.value} | saved {result.efficiency['compute_saved']}")
         return result
 
     def _think_depth(self, words: set) -> ThinkDepth:
