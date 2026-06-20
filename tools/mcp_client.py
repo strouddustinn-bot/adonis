@@ -44,13 +44,27 @@ class MCPServer:
     pending: dict | None = None
 
     async def start(self) -> None:
-        env = {**os.environ, **(self.env or {})}
+        # Containment: never hand the parent's full environment (secrets!) to a
+        # third-party plugin. Gate the executable, build a minimal env, and
+        # optionally wrap in bubblewrap / apply rlimits. See tools/sandbox.py.
+        from tools.sandbox import (
+            build_subprocess_env,
+            enforce_command_allowlist,
+            resource_limiter,
+            wrap_command,
+        )
+        enforce_command_allowlist(self.command)
+        env = build_subprocess_env(self.env)
+        command = wrap_command(self.command)
+        preexec = resource_limiter()
+        extra = {"preexec_fn": preexec} if preexec is not None else {}
         self.proc = await asyncio.create_subprocess_exec(
-            *self.command,
+            *command,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
+            **extra,
         )
         self.pending = {}
         asyncio.create_task(self._read_loop(), name=f"mcp:{self.name}:reader")
