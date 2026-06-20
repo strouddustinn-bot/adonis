@@ -26,10 +26,6 @@ from datetime import datetime, timezone
 log = logging.getLogger("base_agent")
 
 class BaseAgent:
-    def __init__(self, llm, tool_proxy=None):
-        self.tracer = get_tracer()
-        self.llm = llm
-        self.tool_proxy = tool_proxy
     """
     Subclass example:
         class MyAgent(BaseAgent):
@@ -49,13 +45,15 @@ class BaseAgent:
     DOMAINS = []
     CAPABILITIES: frozenset[str] = frozenset()
 
-    def __init__(self, anthropic_client, redis_client, fuse, governor):
-        self.llm      = anthropic_client
-        self.redis    = redis_client
-        self.fuse     = fuse
-        self.governor = governor
-        self.channel  = f"adonis:agent:{self.NAME}"
-        self._alive   = True
+    def __init__(self, anthropic_client, redis_client, fuse, governor, tool_proxy=None):
+        self.tracer     = get_tracer(redis_client)
+        self.llm        = anthropic_client
+        self.redis      = redis_client
+        self.fuse       = fuse
+        self.governor   = governor
+        self.tool_proxy = tool_proxy
+        self.channel    = f"adonis:agent:{self.NAME}"
+        self._alive     = True
 
     async def _check_lock(self):
         from prometheus.fuse import PrometheusFuse
