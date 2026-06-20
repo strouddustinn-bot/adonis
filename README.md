@@ -44,8 +44,8 @@ compression/   semantic-atom compression (Qwen-style dense token packing)
 persona/       hash-protected soul layer (model-family adapters)
 routing/       MoE agent router (Qwen3-30B-A3B-style top-K activation)
 prometheus/    ethical fuse + boot-integrity gate (do not edit casually)
-openclaw/      agents: atlas, mirror, smith, forge, scout, vector, sentinel
-tools/         tool registry + builtin tools + minimal MCP stdio client
+openclaw/      agents: atlas, mirror, smith, forge, scout, vector, sentinel, data, scheduler
+tools/         tool registry + builtin tools + sandboxed MCP stdio client
 memory/        Obsidian bridge (long-term vault)
 supervisord.py async runtime supervisor
 bootstrap.py   interactive setup wizard

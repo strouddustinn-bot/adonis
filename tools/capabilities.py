@@ -118,4 +118,6 @@ DEFAULT_AGENT_CAPABILITIES: dict[str, frozenset[str]] = {
     "sentinel":   frozenset({"time:read"}),
     "smith":      frozenset({"vault:read"}),
     "mirror":     frozenset({"vault:read", "vault:write"}),
+    "data":       frozenset({"vault:read", "time:read"}),
+    "scheduler":  frozenset({"time:read"}),
 }

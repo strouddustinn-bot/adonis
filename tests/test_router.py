@@ -30,6 +30,23 @@ def test_topk_caps_specialist_count():
     assert len(specialists) <= MoERouter.TOP_K_SPECIALISTS
 
 
+def test_data_goal_routes_to_data():
+    r = MoERouter().route("analyze the csv dataset columns and aggregate stats")
+    assert "data" in r.active_agents
+
+
+def test_schedule_goal_routes_to_scheduler():
+    r = MoERouter().route("schedule a daily recurring report")
+    assert "scheduler" in r.active_agents
+
+
+def test_stopwords_do_not_pollute_routing():
+    # 'a' must not match data's a-containing domains and hijack a content goal.
+    r = MoERouter().route("draft a blog post and email copy")
+    assert "forge" in r.active_agents
+    assert "data" not in r.active_agents
+
+
 def test_fallback_to_forge_when_no_domain_hit():
     r = MoERouter().route("zzzz qqqq")
     assert "forge" in r.active_agents

@@ -21,6 +21,8 @@ class FakeRedis:
         self.kv: dict = {}
         self.lists: dict = defaultdict(list)
         self.counters: dict = defaultdict(int)
+        self.hashes: dict = defaultdict(dict)
+        self.published: list = []   # (channel, message) tuples
 
     @staticmethod
     def _b(v):
@@ -82,6 +84,32 @@ class FakeRedis:
         import fnmatch
         all_keys = list(self.kv) + list(self.lists) + list(self.counters)
         return [self._b(k) for k in all_keys if fnmatch.fnmatch(k, pattern)]
+
+    # ── hashes ──────────────────────────────────────────────────────────────
+    async def hset(self, key, field, value):
+        new = field not in self.hashes[key]
+        self.hashes[key][field] = self._b(value)
+        return 1 if new else 0
+
+    async def hget(self, key, field):
+        return self.hashes[key].get(field)
+
+    async def hgetall(self, key):
+        return dict(self.hashes[key])
+
+    async def hdel(self, key, *fields):
+        n = 0
+        for f in fields:
+            if f in self.hashes[key]:
+                del self.hashes[key][f]; n += 1
+        return n
+
+    async def hlen(self, key):
+        return len(self.hashes[key])
+
+    async def publish(self, channel, message):
+        self.published.append((channel, message))
+        return 0
 
     async def aclose(self):
         return True

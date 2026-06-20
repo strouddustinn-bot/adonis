@@ -340,16 +340,19 @@ def build_app(*, llm, redis, fuse, governor, model: str) -> FastAPI:
     @app.get("/capabilities")
     async def capabilities_matrix():
         from tools.registry import REGISTRY
-        from openclaw.agents.atlas    import AtlasAgent
-        from openclaw.agents.forge    import ForgeAgent
-        from openclaw.agents.mirror   import MirrorAgent
-        from openclaw.agents.scout    import ScoutAgent
-        from openclaw.agents.sentinel import SentinelAgent
-        from openclaw.agents.smith    import SmithAgent
-        from openclaw.agents.vector   import VectorAgent
+        from openclaw.agents.atlas     import AtlasAgent
+        from openclaw.agents.data      import DataAgent
+        from openclaw.agents.forge     import ForgeAgent
+        from openclaw.agents.mirror    import MirrorAgent
+        from openclaw.agents.scheduler import SchedulerAgent
+        from openclaw.agents.scout     import ScoutAgent
+        from openclaw.agents.sentinel  import SentinelAgent
+        from openclaw.agents.smith     import SmithAgent
+        from openclaw.agents.vector    import VectorAgent
         agent_caps = {a.NAME: sorted(a.CAPABILITIES) for a in [
             AtlasAgent, ForgeAgent, MirrorAgent, ScoutAgent,
             SentinelAgent, SmithAgent, VectorAgent,
+            DataAgent, SchedulerAgent,
         ]}
         return {
             "agents": agent_caps,
