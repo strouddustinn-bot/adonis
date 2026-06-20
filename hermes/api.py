@@ -14,6 +14,7 @@ Endpoints:
   GET  /ges     — current Glasswing Efficiency Score report
 """
 import asyncio
+import hmac
 import json
 import logging
 import os
@@ -22,13 +23,17 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 log = logging.getLogger("hermes")
 STATIC_DIR = Path(__file__).parent / "static"
+
+# Paths reachable without the bearer token when HERMES_API_KEY is set.
+# /health stays open so liveness/readiness probes keep working.
+_AUTH_EXEMPT = {"/health"}
 
 
 class AskIn(BaseModel):
@@ -65,6 +70,19 @@ def build_app(*, llm, redis, fuse, governor, model: str) -> FastAPI:
     app.state.fuse     = fuse
     app.state.governor = governor
     app.state.model    = model
+
+    @app.middleware("http")
+    async def _bearer_auth(request: Request, call_next):
+        """Require `Authorization: Bearer <HERMES_API_KEY>` on every request
+        when the key is configured. No key set → auth disabled (local use).
+        The key is read per-request so it can be rotated without a rebuild."""
+        api_key = os.getenv("HERMES_API_KEY", "").strip()
+        if api_key and request.url.path not in _AUTH_EXEMPT:
+            provided = request.headers.get("authorization", "")
+            expected = f"Bearer {api_key}"
+            if not (provided and hmac.compare_digest(provided, expected)):
+                return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        return await call_next(request)
 
     @app.post("/ask")
     async def ask(body: AskIn):
