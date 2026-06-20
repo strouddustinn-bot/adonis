@@ -181,9 +181,32 @@ class BaseAgent:
             return True, safe_action.payload
         return False, {}
 
+    PROMPT_OVERRIDE_KEY = "adonis:prompt_override:{agent}"
+
+    async def _prompt_override(self) -> str:
+        """Return any Mirror-adopted system directive for this agent.
+
+        Mirror's self-improvement cycle, when MIRROR_AUTOWRITE is enabled and
+        the rewrite clears the Prometheus fuse, persists an optimised system
+        directive here. It is layered on top of the soul + task prompt at call
+        time, so adoption takes effect immediately and is fully reversible
+        (delete the key to roll back). Failures are swallowed."""
+        try:
+            raw = await self.redis.get(self.PROMPT_OVERRIDE_KEY.format(agent=self.NAME))
+            if not raw:
+                return ""
+            return raw.decode() if isinstance(raw, (bytes, bytearray)) else str(raw)
+        except Exception:
+            return ""
+
     async def llm_call(self, system: str, user: str, max_tokens: int = 1000) -> str:
         """Convenience wrapper for direct LLM calls with soul layer injected."""
         system_with_soul = self.governor.persona.inject(system)
+        override = await self._prompt_override()
+        if override:
+            system_with_soul += ("\n\n---\nMIRROR-OPTIMISED DIRECTIVE "
+                                 "(adopted self-improvement; supersedes conflicting "
+                                 f"guidance above):\n{override}")
         r = await self.llm.messages.create(
             model=os.getenv("ADONIS_MODEL", "claude-sonnet-4-6"),
             max_tokens=max_tokens,

@@ -88,7 +88,7 @@ Adonis ships with a small built-in tool catalog (`http_fetch`, `web_search` via 
 
 ## Self-improvement
 
-- **Mirror** runs a recurring cycle: collect GES → identify worst-performing agent → propose a prompt rewrite → benchmark old vs new → log to the Obsidian vault for human review. (By default, Mirror does *not* edit source files — proposals go to `SELF/improvement_queue.md` in the vault. Flipping this to actually rewrite agent code is one fuse-gated edit away.)
+- **Mirror** runs a recurring cycle: collect GES → identify worst-performing agent → propose a prompt rewrite → benchmark old vs new → adopt only if it beats baseline. By default (`MIRROR_AUTOWRITE=0`) adoption just logs the proposal to `SELF/improvement_queue.md` for human review. Set `MIRROR_AUTOWRITE=1` and Mirror will actually adopt the winning rewrite — **after** clearing the Prometheus fuse — by persisting an optimised system directive to a runtime override store that every agent layers into its next call. This never edits source files and is fully reversible: `mirror.rollback {"agent":"<name>"}` clears the override.
 - **Smith** classifies every failure (syntax / logic / tool / timeout / prometheus-block), generates a fix, gates it through the fuse, and records the pattern.
 - **Wins and losses** are logged per agent. Every 10th win is distilled into the L3 semantic vault, so future similar tasks can retrieve prior winning approaches at routing time.
 
