@@ -93,6 +93,30 @@ class FakeMessage:
         self.usage = type("Usage", (), {"input_tokens": 10, "output_tokens": 20})()
 
 
+class _FakeStream:
+    """Async context manager mimicking anthropic's streaming response."""
+    def __init__(self, text):
+        self._text = text
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    @property
+    def text_stream(self):
+        # Chunk into a few pieces to exercise the delta path.
+        async def _it():
+            words = self._text.split(" ")
+            for i, w in enumerate(words):
+                yield (w if i == 0 else " " + w)
+        return _it()
+
+    async def get_final_message(self):
+        return FakeMessage(self._text)
+
+
 class FakeMessages:
     def __init__(self, responder):
         self._responder = responder
@@ -100,6 +124,9 @@ class FakeMessages:
     async def create(self, **kwargs):
         text = self._responder(kwargs)
         return FakeMessage(text)
+
+    def stream(self, **kwargs):
+        return _FakeStream(self._responder(kwargs))
 
 
 class FakeLLM:
