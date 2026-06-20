@@ -42,6 +42,11 @@ class MirrorProposeOut(ContractOut):
     rationale:           Optional[str] = None
     expected_improvement: Optional[str] = None
 
+class MirrorRollbackIn(ContractIn):
+    agent: str
+class MirrorRollbackOut(ContractOut):
+    rolled_back: Optional[bool] = None
+
 BENCHMARK_TASKS = [
     {"goal":"Summarise the key points from a 1000-word article","expected_keywords":["key","point","summary"]},
     {"goal":"Debug a Python KeyError in a dict lookup","expected_keywords":["key","missing","check"]},
@@ -65,13 +70,22 @@ class MirrorAgent(BaseAgent):
         Contract("mirror.propose_rewrite",  "mirror", "propose_rewrite",
                  "Produce a rewrite proposal for a single underperforming agent's system prompt.",
                  MirrorProposeIn,     MirrorProposeOut,     timeout_s=45),
+        Contract("mirror.rollback",          "mirror", "rollback_prompt",
+                 "Operator rollback: clear any adopted prompt override for an agent.",
+                 MirrorRollbackIn,    MirrorRollbackOut,    timeout_s=10),
     ]
+
+    # Opt-in: actually adopt rewrites (still fuse-gated) instead of only
+    # queueing proposals to the vault. Default off — proposals go to SELF/.
+    AUTOWRITE = os.getenv("MIRROR_AUTOWRITE", "0") == "1"
+    OVERRIDE_KEY = "adonis:prompt_override:{agent}"
 
     async def handle(self, task: dict, session_id: str) -> dict:
         task_type = task.get("type","mirror_cycle")
         if task_type == "mirror_cycle":        return await self._run_cycle(session_id)
         if task_type == "consistency_test":    return await self._consistency_test(session_id)
         if task_type == "propose_rewrite":     return await self._propose_rewrite(task, session_id)
+        if task_type == "rollback_prompt":     return await self._rollback_prompt(task, session_id)
         return {"status":"unknown_task","agent":self.NAME}
 
     async def _run_cycle(self, session_id: str) -> dict:
@@ -102,11 +116,13 @@ class MirrorAgent(BaseAgent):
         report["baseline_score"] = baseline_score
         report["proposal_score"] = proposal_score
 
-        # 5 & 6. Compare + adopt
+        # 5 & 6. Compare + adopt (only if the benchmark actually improved)
         if proposal_score > baseline_score:
-            await self._adopt_proposal(worst_agent, proposal, session_id)
-            report["outcome"] = "adopted"
-            log.info(f"[MIRROR] Adopted proposal for {worst_agent} (+{proposal_score-baseline_score:.2f})")
+            adoption = await self._adopt_proposal(worst_agent, proposal, session_id)
+            report["outcome"]  = "adopted"
+            report["adoption"] = adoption
+            log.info(f"[MIRROR] Adopted proposal for {worst_agent} "
+                     f"(+{proposal_score-baseline_score:.2f}, mode={adoption.get('mode')})")
         else:
             report["outcome"] = "rejected"
             log.info(f"[MIRROR] Proposal for {worst_agent} rejected (no improvement)")
@@ -153,16 +169,72 @@ Return JSON: {{"new_prompt":"...","rationale":"...","expected_improvement":"..."
                 scores.append(0.0)
         return round(sum(scores)/len(scores)*10, 2) if scores else 0.0
 
-    async def _adopt_proposal(self, agent_name: str, proposal: dict, session_id: str):
-        """Write new prompt to improvement queue in Obsidian vault."""
-        if not hasattr(self.governor.context, "obs") or not self.governor.context.obs: return
+    async def _adopt_proposal(self, agent_name: str, proposal: dict, session_id: str) -> dict:
+        """Adopt a benchmark-validated rewrite.
+
+        Two stages, both safe:
+          1. Always log the proposal to SELF/improvement_queue.md for the
+             operator's audit trail (best-effort; no-op without Obsidian).
+          2. If MIRROR_AUTOWRITE is enabled, gate the rewrite through the
+             Prometheus fuse. Only on approval is the optimised directive
+             persisted to the runtime override store, where agents pick it up
+             on their next llm_call. This never touches source files and is
+             reversible via mirror.rollback. Default (autowrite off) returns
+             after stage 1 with mode="queued"."""
+        new_prompt = (proposal.get("new_prompt") or "").strip()
+        status_label = "ADOPTED" if (self.AUTOWRITE and new_prompt) else "QUEUED"
+        await self._log_to_queue(agent_name, proposal, status_label)
+
+        if not self.AUTOWRITE or not new_prompt:
+            return {"applied": False, "mode": "queued"}
+
+        # Fuse gate — a self-rewrite is an autonomy-adjacent action.
+        approved, _ = await self.evaluate_action(
+            action_type="self_rewrite",
+            description=(f"Adopt Mirror-optimised system directive for agent "
+                         f"{agent_name}: {new_prompt[:200]}"),
+            payload={"agent": agent_name, "prompt_preview": new_prompt[:300]},
+            session_id=session_id,
+        )
+        if not approved:
+            log.warning("[MIRROR] Self-rewrite for %s blocked by Prometheus.", agent_name)
+            return {"applied": False, "mode": "blocked"}
+
+        try:
+            await self.redis.set(self.OVERRIDE_KEY.format(agent=agent_name), new_prompt)
+            await self.redis.lpush("adonis:prompt_override:log", json.dumps({
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "agent": agent_name, "prompt": new_prompt[:500],
+                "rationale": proposal.get("rationale", "")[:300],
+            }))
+            await self.redis.ltrim("adonis:prompt_override:log", 0, 199)
+        except Exception as e:
+            log.error("[MIRROR] Override persist failed: %s", e)
+            return {"applied": False, "mode": "error", "error": str(e)}
+
+        log.info("[MIRROR] Self-rewrite for %s adopted (fuse-approved).", agent_name)
+        return {"applied": True, "mode": "autowrite"}
+
+    async def _rollback_prompt(self, task: dict, session_id: str) -> dict:
+        """Operator action: clear an agent's adopted prompt override."""
+        agent_name = task.get("agent", "")
+        if not agent_name:
+            return {"status": "error", "reason": "no agent", "agent": self.NAME}
+        removed = await self.redis.delete(self.OVERRIDE_KEY.format(agent=agent_name))
+        log.info("[MIRROR] Rolled back override for %s (existed=%s).", agent_name, bool(removed))
+        return {"status": "ok", "agent": self.NAME, "rolled_back": bool(removed)}
+
+    async def _log_to_queue(self, agent_name: str, proposal: dict, status_label: str):
+        """Best-effort append of a proposal to the SELF/ improvement queue."""
+        obs = getattr(getattr(self.governor, "context", None), "obs", None)
+        if not obs:
+            return
         entry = (f"\n## {datetime.now(timezone.utc).isoformat()} — {agent_name}\n"
                  f"**New prompt**: {proposal.get('new_prompt','')[:300]}\n"
                  f"**Rationale**: {proposal.get('rationale','')}\n"
                  f"**Expected**: {proposal.get('expected_improvement','')}\n"
-                 f"**Status**: ADOPTED\n")
+                 f"**Status**: {status_label}\n")
         try:
-            obs = self.governor.context.obs
             existing = await obs.read_note("SELF/improvement_queue.md") or ""
             await obs.write_note("SELF/improvement_queue.md", existing + entry)
         except Exception as e:

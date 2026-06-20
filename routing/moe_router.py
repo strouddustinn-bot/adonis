@@ -49,11 +49,26 @@ AGENT_REGISTRY: list[AgentSpec] = [
     AgentSpec("smith",     ["code","debug","engineering","fix","api","integration","error","bug","script"], 1.0, False, "Code & debugging"),
     AgentSpec("sentinel",  ["monitor","health","alert","status","uptime","check"],          0.4,  False, "System health"),
     AgentSpec("mirror",    ["reflect","optimize","improve","benchmark","self","performance","rewrite"],     0.7, False, "Self-improvement"),
+    AgentSpec("data",      ["data","csv","table","dataframe","sql","aggregate","stats","column","dataset","query"], 0.8, False, "Structured-data analysis"),
+    AgentSpec("scheduler", ["schedule","cron","recurring","interval","timer","periodic","daily","reminder"], 0.3, False, "Recurring task dispatch"),
 ]
 
 DEEP_SIGNALS    = {"debug","architect","design","plan","analyze","why","how","engineer","strategy","review","diagnose"}
 SHALLOW_SIGNALS = {"list","summarize","find","get","fetch","check","show","what","when","where","who"}
 OFF_SIGNALS     = {"hi","hello","thanks","yes","no","ok","great","sure","bye"}
+
+def _domain_match(domain: str, word: str) -> bool:
+    """Match a routing domain against a task word: exact, or substring either
+    way but only when the substring side is >= 4 chars (crude stemming without
+    stopword pollution)."""
+    if domain == word:
+        return True
+    if len(word) >= 4 and word in domain:
+        return True
+    if len(domain) >= 4 and domain in word:
+        return True
+    return False
+
 
 @dataclass
 class RoutingResult:
@@ -73,8 +88,10 @@ class MoERouter:
         # Score each specialist
         scores: dict[str, float] = {}
         for a in special:
-            # Direct match + stemming approximation (simple)
-            hits = sum(1 for d in a.domains if any(d in w or w in d for w in words))
+            # Direct match + crude stemming. Require length >= 4 on the
+            # substring side so stopwords ("a", "an") don't spuriously match
+            # domains that merely contain those letters (e.g. "a" in "data").
+            hits = sum(1 for d in a.domains if any(_domain_match(d, w) for w in words))
             if hits:
                 # Score based on hit density vs cost weight
                 scores[a.name] = (hits * 10) / a.cost_weight
@@ -105,7 +122,7 @@ class MoERouter:
                 "think_overhead":  {"off":"0 tokens","shallow":"~200 tokens","deep":"~1000 tokens"}[depth.value],
             }
         )
-        log.info(f"[MOE] Routing: {active} | think={depth.value} | saved {result.efficiency["compute_saved"]}")
+        log.info(f"[MOE] Routing: {active} | think={depth.value} | saved {result.efficiency['compute_saved']}")
         return result
 
     def _think_depth(self, words: set) -> ThinkDepth:

@@ -26,8 +26,10 @@ from tools.builtin import register_builtins
 from tools.mcp_client import attach_mcp_servers, detach_mcp_servers
 
 from openclaw.agents.atlas import AtlasAgent
+from openclaw.agents.data import DataAgent
 from openclaw.agents.forge import ForgeAgent
 from openclaw.agents.mirror import MirrorAgent
+from openclaw.agents.scheduler import SchedulerAgent
 from openclaw.agents.scout import ScoutAgent
 from openclaw.agents.sentinel import SentinelAgent
 from openclaw.agents.smith import SmithAgent
@@ -72,6 +74,7 @@ def _build_chroma_collection():
 AGENT_CLASSES = [
     AtlasAgent, ForgeAgent, MirrorAgent, ScoutAgent,
     SentinelAgent, SmithAgent, VectorAgent,
+    DataAgent, SchedulerAgent,
 ]
 
 

@@ -7,7 +7,7 @@ Fetches OpenAPI/Swagger specs and converts them into Adonis ToolSchemas.
 """
 import httpx, json, logging
 from typing import List, Dict, Any
-from tools.registry import ToolSchema
+from tools.registry import ToolSchema, DynamicToolRegistry
 
 log = logging.getLogger("discovery")
 

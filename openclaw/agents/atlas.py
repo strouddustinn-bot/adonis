@@ -8,7 +8,7 @@ via Redis pub/sub, collects results, and assembles the final response.
 
 Uses asyncio.gather() for parallel independent sub-tasks (Glasswing rule #3).
 """
-import os, json, logging, asyncio, uuid
+import os, re, json, logging, asyncio, uuid
 from routing.planner import HierarchicalPlanner
 from openclaw.base_agent import BaseAgent
 from openclaw.contracts import Contract, ContractIn, ContractOut
@@ -28,9 +28,6 @@ class AtlasOrchestrateOut(ContractOut):
 
 
 class AtlasAgent(BaseAgent):
-    def __init__(self, llm, tool_proxy=None):
-        super().__init__(llm, tool_proxy)
-        self.planner = HierarchicalPlanner(llm)
     NAME    = "atlas"
     DOMAINS = ["orchestration","planning","task","manage","decompose","goal","coordinate","multi"]
     # Atlas dispatches; it doesn't directly hit external resources.
@@ -44,6 +41,10 @@ class AtlasAgent(BaseAgent):
         ),
     ]
 
+    def __init__(self, anthropic_client, redis_client, fuse, governor, tool_proxy=None):
+        super().__init__(anthropic_client, redis_client, fuse, governor, tool_proxy)
+        self.planner = HierarchicalPlanner(anthropic_client)
+
 
     async def handle(self, task: dict, session_id: str) -> dict:
         goal = task.get("goal") or task.get("content", "")
@@ -54,13 +55,18 @@ class AtlasAgent(BaseAgent):
         plan = await self.planner.decompose(goal)
         log.info(f"[ATLAS] Decomposed goal into {len(plan.subgoals)} verifiable subgoals for session {session_id}")
 
-        # Define a wrapper that maps Planner's Subgoal -> Atlas's _dispatch
+        # Map each planner Subgoal to the best-fit specialist contract, rather
+        # than forcing everything through forge.draft_post. _select_contract
+        # scores the contract catalog against the subgoal's text.
         async def executor(subgoal):
-            # Try to find a matching contract from the planner's description
-            # In a production version, the Planner would output the contract name directly.
-            # For now, we'll map the description to a "default" contract or use the logic in _decompose.
-            # Since we are integrating, we'll simplify: we'll treat the subgoal description as the task.
-            res = await self._dispatch({"id": f"sg{subgoal.id}", "contract": "forge.draft_post", "task": subgoal.description, "args": {"content": subgoal.description}}, session_id)
+            contract_name = self._select_contract(subgoal.description)
+            log.debug("[ATLAS] subgoal %s -> %s", subgoal.id, contract_name)
+            res = await self._dispatch({
+                "id":       f"sg{subgoal.id}",
+                "contract": contract_name,
+                "task":     subgoal.description,
+                "args":     {"content": subgoal.description},
+            }, session_id)
             return res.get("result", res)
 
         try:
@@ -105,6 +111,33 @@ Goal: {goal}"""
         except Exception as e:
             log.error(f"[ATLAS] Decompose failed: {e}")
             return [{"id":"t1","contract":"forge.draft_post","task":goal,"args":{"content":goal},"depends_on":None}]
+
+    def _select_contract(self, description: str) -> str:
+        """Pick the best-fit contract for a subgoal using a deterministic
+        keyword score over each contract's owning-agent domains plus its
+        task_type / name tokens. No LLM call — cheap and testable. Falls
+        back to forge.draft_post when nothing scores or no registry is wired."""
+        registry = getattr(self.governor, "contract_registry", None)
+        if not registry:
+            return "forge.draft_post"
+        try:
+            from routing.moe_router import AGENT_REGISTRY
+            domains = {a.name: a.domains for a in AGENT_REGISTRY}
+        except Exception:
+            domains = {}
+
+        words = set(re.findall(r"[a-z]+", description.lower()))
+        best, best_score = None, 0
+        for c in registry.all():
+            if c.agent == "atlas":
+                continue  # never recurse into the orchestrator
+            score = sum(2 for d in domains.get(c.agent, []) if d in words)
+            for tok in re.split(r"[._]", c.task_type) + re.split(r"[._]", c.name):
+                if tok and tok in words:
+                    score += 3
+            if score > best_score:
+                best, best_score = c.name, score
+        return best or "forge.draft_post"
 
     async def _dispatch(self, subtask: dict, session_id: str) -> dict:
         """Dispatch a subtask under its contract, with retries + fallback.
