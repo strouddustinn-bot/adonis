@@ -47,7 +47,9 @@ def _sse(obj: dict) -> bytes:
 
 # Paths reachable without the bearer token when HERMES_API_KEY is set.
 # /health stays open so liveness/readiness probes keep working.
-_AUTH_EXEMPT = {"/health"}
+# Docs paths stay open so developers can still browse the API locally.
+_AUTH_EXEMPT_PATHS    = {"/health", "/docs", "/openapi.json", "/redoc"}
+_AUTH_EXEMPT_PREFIXES = ("/static/",)
 
 
 class AskIn(BaseModel):
@@ -91,7 +93,9 @@ def build_app(*, llm, redis, fuse, governor, model: str) -> FastAPI:
         when the key is configured. No key set → auth disabled (local use).
         The key is read per-request so it can be rotated without a rebuild."""
         api_key = os.getenv("HERMES_API_KEY", "").strip()
-        if api_key and request.url.path not in _AUTH_EXEMPT:
+        path = request.url.path
+        exempt = path in _AUTH_EXEMPT_PATHS or any(path.startswith(p) for p in _AUTH_EXEMPT_PREFIXES)
+        if api_key and not exempt:
             provided = request.headers.get("authorization", "")
             expected = f"Bearer {api_key}"
             if not (provided and hmac.compare_digest(provided, expected)):

@@ -103,6 +103,7 @@ class ToolRegistry:
         """For UI / introspection: which tools each agent is allowed to call."""
         out: dict = {}
         for agent, caps in agent_capabilities.items():
+            caps = list(caps)  # materialize once; safe for generators / one-shot iterables
             allowed, blocked = [], []
             for t in self._tools.values():
                 ok, _ = covers(caps, t.required_capabilities)

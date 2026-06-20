@@ -41,18 +41,18 @@ PROPOSAL = {"new_prompt": "Be maximally terse. Lead with the answer.",
             "rationale": "reduce tokens", "expected_improvement": "+15%"}
 
 
-async def test_autowrite_off_only_queues(fake_redis, fake_llm):
+async def test_autowrite_off_only_queues(fake_redis, fake_llm, monkeypatch):
+    monkeypatch.delenv("MIRROR_AUTOWRITE", raising=False)
     m = _mirror(fake_redis, fake_llm, _FakeFuse(True))
-    m.AUTOWRITE = False
     res = await m._adopt_proposal("forge", PROPOSAL, "s1")
     assert res == {"applied": False, "mode": "queued"}
     # No override persisted.
     assert await fake_redis.get("adonis:prompt_override:forge") is None
 
 
-async def test_autowrite_on_and_approved_persists_override(fake_redis, fake_llm):
+async def test_autowrite_on_and_approved_persists_override(fake_redis, fake_llm, monkeypatch):
+    monkeypatch.setenv("MIRROR_AUTOWRITE", "1")
     m = _mirror(fake_redis, fake_llm, _FakeFuse(True))
-    m.AUTOWRITE = True
     res = await m._adopt_proposal("forge", PROPOSAL, "s1")
     assert res["applied"] is True
     assert res["mode"] == "autowrite"
@@ -61,17 +61,17 @@ async def test_autowrite_on_and_approved_persists_override(fake_redis, fake_llm)
     assert b"maximally terse" in stored
 
 
-async def test_autowrite_blocked_by_fuse(fake_redis, fake_llm):
+async def test_autowrite_blocked_by_fuse(fake_redis, fake_llm, monkeypatch):
+    monkeypatch.setenv("MIRROR_AUTOWRITE", "1")
     m = _mirror(fake_redis, fake_llm, _FakeFuse(False))
-    m.AUTOWRITE = True
     res = await m._adopt_proposal("forge", PROPOSAL, "s1")
     assert res == {"applied": False, "mode": "blocked"}
     assert await fake_redis.get("adonis:prompt_override:forge") is None
 
 
-async def test_real_fuse_approves_benign_rewrite(fake_redis, fake_llm):
+async def test_real_fuse_approves_benign_rewrite(fake_redis, fake_llm, monkeypatch):
+    monkeypatch.setenv("MIRROR_AUTOWRITE", "1")
     m = _mirror(fake_redis, fake_llm, PrometheusFuse(fake_llm, fake_redis))
-    m.AUTOWRITE = True
     res = await m._adopt_proposal("scout", PROPOSAL, "s1")
     assert res["applied"] is True
 
