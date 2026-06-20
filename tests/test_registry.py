@@ -92,3 +92,48 @@ def test_capability_matrix():
     matrix = reg.capability_matrix({"sentinel": frozenset({"time:read"})})
     assert "clocky" in matrix["sentinel"]["allowed"]
     assert "netty" in matrix["sentinel"]["blocked"]
+
+
+def test_capability_matrix_with_generator():
+    """capability_matrix must not exhaust one-shot iterables for a given agent."""
+    reg = ToolRegistry()
+    reg.register(_echo_tool(name="clocky", caps=frozenset({"time:read"})))
+
+    def _gen():
+        yield "time:read"
+
+    matrix = reg.capability_matrix({"sentinel": _gen()})
+    assert "clocky" in matrix["sentinel"]["allowed"]
+    assert matrix["sentinel"]["capabilities"] == ["time:read"]
+
+
+async def test_audit_log_capped(fake_redis, fake_llm, monkeypatch):
+    """AUDIT_CAP must prevent the audit list from growing unbounded."""
+    import json as _json
+
+    monkeypatch.setattr(ToolRegistry, "AUDIT_CAP", 3)
+
+    reg = ToolRegistry()
+    reg.attach_redis(fake_redis)
+    reg.register(_echo_tool())
+    fuse = PrometheusFuse(fake_llm, fake_redis)
+
+    for i in range(5):
+        res = await reg.invoke(
+            "echo",
+            {"i": i},
+            agent_name="sentinel",
+            agent_capabilities=frozenset(),
+            session_id=f"s{i}",
+            fuse=fuse,
+        )
+        assert res["ok"] is True
+        assert await fake_redis.llen("tools:audit") <= 3
+
+    assert await fake_redis.llen("tools:audit") == 3
+
+    # Most recent entry is at index 0 (lpush); oldest remaining at index 2.
+    entries = await fake_redis.lrange("tools:audit", 0, -1)
+    decoded = [_json.loads(e) for e in entries]
+    session_ids = [entry["session_id"] for entry in decoded]
+    assert session_ids == ["s4", "s3", "s2"]

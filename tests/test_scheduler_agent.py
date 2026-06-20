@@ -62,6 +62,31 @@ async def test_dispatch_due_fires_and_reschedules(fake_redis, fake_llm):
     assert await a._dispatch_due(now=time.time() + 120) == []
 
 
+async def test_malformed_job_entry_ignored_in_list_and_dispatch(fake_redis, fake_llm):
+    a = _agent(fake_redis, fake_llm)
+
+    # Inject a malformed entry directly into the hash to exercise the defensive
+    # json.loads() handling in both _list and _dispatch_due.
+    await fake_redis.hset(SchedulerAgent.HASH_KEY, "bad", b"{not-json")
+
+    # Also register a valid job so we can verify normal behavior is unaffected.
+    await a.handle(
+        {"type": "schedule_add", "name": "hb", "every_s": 60,
+         "target": "sentinel", "payload": {"type": "health"}},
+        "s1",
+    )
+
+    # Listing must skip the malformed entry and still return the valid one.
+    listing = await a.handle({"type": "schedule_list"}, "s1")
+    job_names = {job["name"] for job in listing["jobs"]}
+    assert "hb" in job_names
+    assert "bad" not in job_names
+
+    # Dispatching must also skip the malformed entry without raising.
+    fired = await a._dispatch_due(now=time.time() + 120)
+    assert fired == ["hb"]
+
+
 async def test_run_launches_and_cancels_ticker(fake_redis, fake_llm):
     import asyncio
     import contextlib

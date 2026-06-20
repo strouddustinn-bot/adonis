@@ -75,9 +75,7 @@ class MirrorAgent(BaseAgent):
                  MirrorRollbackIn,    MirrorRollbackOut,    timeout_s=10),
     ]
 
-    # Opt-in: actually adopt rewrites (still fuse-gated) instead of only
-    # queueing proposals to the vault. Default off — proposals go to SELF/.
-    AUTOWRITE = os.getenv("MIRROR_AUTOWRITE", "0") == "1"
+    # Runtime key where Mirror persists accepted prompt overrides.
     OVERRIDE_KEY = "adonis:prompt_override:{agent}"
 
     async def handle(self, task: dict, session_id: str) -> dict:
@@ -182,10 +180,11 @@ Return JSON: {{"new_prompt":"...","rationale":"...","expected_improvement":"..."
              reversible via mirror.rollback. Default (autowrite off) returns
              after stage 1 with mode="queued"."""
         new_prompt = (proposal.get("new_prompt") or "").strip()
-        status_label = "ADOPTED" if (self.AUTOWRITE and new_prompt) else "QUEUED"
+        autowrite = os.getenv("MIRROR_AUTOWRITE", "0") == "1"
+        status_label = "ADOPTED" if (autowrite and new_prompt) else "QUEUED"
         await self._log_to_queue(agent_name, proposal, status_label)
 
-        if not self.AUTOWRITE or not new_prompt:
+        if not autowrite or not new_prompt:
             return {"applied": False, "mode": "queued"}
 
         # Fuse gate — a self-rewrite is an autonomy-adjacent action.
