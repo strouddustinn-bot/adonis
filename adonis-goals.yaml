@@ -1,0 +1,82 @@
+spec_version: "1.0"
+repo: adonis
+description: >
+  Bounded self-improvement specification for Adonis. Mirror proposes prompt
+  rewrites that must pass eval regression + acceptance gate + red-team before
+  a human operator merges them. No path in this spec auto-edits source files,
+  weakens safety infrastructure, or bypasses the Prometheus fuse.
+
+# ── Immutable paths ───────────────────────────────────────────────────────────
+# The harness, fuse, and this spec file itself are write-protected. Mirror MUST
+# NOT modify them. Boot integrity check (boot_check.py) verifies fuse.py hash.
+immutable:
+  - "./evals/**"
+  - "./prometheus/**"
+  - "./harness/**"
+  - "adonis-goals.yaml"
+
+# ── Goal G1: Bounded self-improvement loop ───────────────────────────────────
+goals:
+  - id: G1
+    name: bounded_self_improvement
+    description: >
+      Mirror proposes system-prompt improvements for underperforming agents.
+      Proposals are written to candidates/<run_id>/ for human review. Nothing
+      is merged without owner approval.
+
+    loop:
+      trigger: "mirror_cycle"          # pub/sub task type
+      steps:
+        - collect_ges                  # pull GES scores from governor
+        - pick_worst_agent             # lowest GES among active agents
+        - propose_rewrite              # LLM generates candidate system prompt
+        - run_frozen_eval:             # EvalRunner over evals/frozen_set.jsonl
+            incumbent: true
+            candidate: true
+        - red_team:                    # RedTeamRunner: 5 attack vectors
+            vectors: 5
+            on_fail: reject
+        - acceptance_gate:             # margin + cost + latency + fuse checks
+            margin: 0.03
+            max_cost_ratio: 1.10
+            max_latency_ratio: 1.20
+            fuse_violations: 0
+        - write_provenance             # candidates/<run_id>/ artifacts
+        - checkpoint:
+            at: "before_merge"
+            action: "fuse_review + owner_approval"
+            rights_check:
+              require: ["repo:owner"]
+              on_fail: "halt_and_report"
+
+    autonomy: "propose_only"           # Mirror writes; human merges
+    on_failure: "reroute_max_3_then_halt"
+
+    watchdog:
+      description: >
+        After a human merges an adopted prompt, the scheduler fires a watchdog
+        job that checks live GES 24 h later. If real performance < predicted
+        × 0.90, the override is auto-rolled-back via mirror.rollback.
+      check_after_s: 86400
+      rollback_threshold: 0.90
+      rollback_via: "mirror.rollback"
+
+# ── Integrity ─────────────────────────────────────────────────────────────────
+integrity:
+  boot_check:
+    file: "prometheus/fuse.py"
+    on_mismatch: "halt"
+  docker_mount: "./prometheus:ro"
+
+# ── Agent baseline skills ─────────────────────────────────────────────────────
+skills_dir: "./skills"
+skills:
+  - atlas
+  - forge
+  - smith
+  - scout
+  - data
+  - vector
+  - sentinel
+  - mirror
+  - scheduler

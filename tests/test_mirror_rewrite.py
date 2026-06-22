@@ -39,13 +39,17 @@ def _mirror(fake_redis, fake_llm, fuse):
 
 PROPOSAL = {"new_prompt": "Be maximally terse. Lead with the answer.",
             "rationale": "reduce tokens", "expected_improvement": "+15%"}
+NEW_PROMPT = PROPOSAL["new_prompt"]
+RUN_ID = "forge-test-abc123"
 
 
 async def test_autowrite_off_only_queues(fake_redis, fake_llm, monkeypatch):
     monkeypatch.delenv("MIRROR_AUTOWRITE", raising=False)
     m = _mirror(fake_redis, fake_llm, _FakeFuse(True))
-    res = await m._adopt_proposal("forge", PROPOSAL, "s1")
-    assert res == {"applied": False, "mode": "queued"}
+    res = await m._adopt_proposal("forge", PROPOSAL, NEW_PROMPT, RUN_ID, 0.75, "s1")
+    assert res["applied"] is False
+    assert res["mode"] == "proposed"
+    assert res["run_id"] == RUN_ID
     # No override persisted.
     assert await fake_redis.get("adonis:prompt_override:forge") is None
 
@@ -53,7 +57,7 @@ async def test_autowrite_off_only_queues(fake_redis, fake_llm, monkeypatch):
 async def test_autowrite_on_and_approved_persists_override(fake_redis, fake_llm, monkeypatch):
     monkeypatch.setenv("MIRROR_AUTOWRITE", "1")
     m = _mirror(fake_redis, fake_llm, _FakeFuse(True))
-    res = await m._adopt_proposal("forge", PROPOSAL, "s1")
+    res = await m._adopt_proposal("forge", PROPOSAL, NEW_PROMPT, RUN_ID, 0.75, "s1")
     assert res["applied"] is True
     assert res["mode"] == "autowrite"
     stored = await fake_redis.get("adonis:prompt_override:forge")
@@ -64,15 +68,16 @@ async def test_autowrite_on_and_approved_persists_override(fake_redis, fake_llm,
 async def test_autowrite_blocked_by_fuse(fake_redis, fake_llm, monkeypatch):
     monkeypatch.setenv("MIRROR_AUTOWRITE", "1")
     m = _mirror(fake_redis, fake_llm, _FakeFuse(False))
-    res = await m._adopt_proposal("forge", PROPOSAL, "s1")
-    assert res == {"applied": False, "mode": "blocked"}
+    res = await m._adopt_proposal("forge", PROPOSAL, NEW_PROMPT, RUN_ID, 0.75, "s1")
+    assert res["applied"] is False
+    assert res["mode"] == "blocked"
     assert await fake_redis.get("adonis:prompt_override:forge") is None
 
 
 async def test_real_fuse_approves_benign_rewrite(fake_redis, fake_llm, monkeypatch):
     monkeypatch.setenv("MIRROR_AUTOWRITE", "1")
     m = _mirror(fake_redis, fake_llm, PrometheusFuse(fake_llm, fake_redis))
-    res = await m._adopt_proposal("scout", PROPOSAL, "s1")
+    res = await m._adopt_proposal("scout", PROPOSAL, NEW_PROMPT, "scout-test-xyz", 0.80, "s1")
     assert res["applied"] is True
 
 
