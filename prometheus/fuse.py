@@ -31,16 +31,16 @@ log = logging.getLogger("prometheus")
 AUDIT_CAP = 1000
 
 
-class _TextBlock(Protocol):
+class _LLMTextBlock(Protocol):
     text: str
 
 
-class _LLMResponse(Protocol):
-    content: Sequence[_TextBlock]
+class _LLMMessageResponse(Protocol):
+    content: Sequence[_LLMTextBlock]
 
 
 class _LLMMessages(Protocol):
-    async def create(self, **kwargs: object) -> _LLMResponse: ...
+    async def create(self, **kwargs: object) -> _LLMMessageResponse: ...
 
 
 class _LLMClient(Protocol):
@@ -48,26 +48,16 @@ class _LLMClient(Protocol):
 
 
 class _RedisClient(Protocol):
-    async def lpush(self, key: str, *values: object) -> object: ...
-
-    async def ltrim(self, key: str, start: int, end: int) -> object: ...
-
-    async def set(self, key: str, value: object) -> object: ...
-
+    async def lpush(self, key: str, value: str) -> int: ...
+    async def ltrim(self, key: str, start: int, end: int) -> bool: ...
+    async def set(self, key: str, value: str) -> bool: ...
     async def exists(self, key: str) -> int: ...
 
 
-class _ObsidianBridge(Protocol):
-    async def read_note(self, path: str) -> str | None: ...
-
-    async def write_note(self, path: str, content: str) -> bool: ...
-
-    async def search(self, query: str) -> list[dict[str, object]]: ...
-
-    async def append_note(self, path: str, content: str) -> bool: ...
+class _ObsidianBridge(Protocol): ...
 
 
-_SCORE_KEYS = (
+SCORE_FIELDS = (
     "harm_potential",
     "deception_index",
     "data_exfil_risk",
@@ -75,63 +65,6 @@ _SCORE_KEYS = (
     "legal_exposure",
     "cascade_risk",
 )
-
-
-def _json_object(text: str) -> object:
-    return cast(object, json.loads(text))
-
-
-def _mapping_from_object(value: object) -> Mapping[str, object] | None:
-    if not isinstance(value, dict):
-        return None
-    typed_value = cast(dict[object, object], value)
-    for key in typed_value:
-        if not isinstance(key, str):
-            return None
-    return cast(Mapping[str, object], typed_value)
-
-
-def _payload_to_text(payload: Mapping[str, object]) -> str:
-    try:
-        return json.dumps(payload)
-    except (TypeError, ValueError):
-        return str(dict(payload))
-
-
-def _permission_set(value: object) -> set[str]:
-    if not isinstance(value, (list, tuple, set, frozenset)):
-        return set()
-    permissions: set[str] = set()
-    for item in cast(Iterable[object], value):
-        if isinstance(item, str):
-            permissions.add(item)
-    return permissions
-
-
-def _bounded_int(value: object | None) -> int | None:
-    if value is None:
-        return None
-    if not isinstance(value, (int, float, str, bytes, bytearray)):
-        return None
-    try:
-        return max(0, min(10, int(value)))
-    except (TypeError, ValueError):
-        return None
-
-
-def _bump_axis(score: "IntentScore", axis: str, increment: int) -> None:
-    if axis == "harm_potential":
-        score.harm_potential = min(10, score.harm_potential + increment)
-    elif axis == "deception_index":
-        score.deception_index = min(10, score.deception_index + increment)
-    elif axis == "data_exfil_risk":
-        score.data_exfil_risk = min(10, score.data_exfil_risk + increment)
-    elif axis == "autonomy_override":
-        score.autonomy_override = min(10, score.autonomy_override + increment)
-    elif axis == "legal_exposure":
-        score.legal_exposure = min(10, score.legal_exposure + increment)
-    elif axis == "cascade_risk":
-        score.cascade_risk = min(10, score.cascade_risk + increment)
 
 
 class FuseLevel(Enum):
@@ -171,15 +104,13 @@ class IntentScore:
     @property
     def total(self) -> int:
         """Sum of all risk axes (0-60)."""
-        return sum(
-            [
-                self.harm_potential,
-                self.deception_index,
-                self.data_exfil_risk,
-                self.autonomy_override,
-                self.legal_exposure,
-                self.cascade_risk,
-            ]
+        return (
+            self.harm_potential
+            + self.deception_index
+            + self.data_exfil_risk
+            + self.autonomy_override
+            + self.legal_exposure
+            + self.cascade_risk
         )
 
     @property
@@ -248,13 +179,18 @@ SIGNALS = [
 
 # Risky permission combinations: (required_perms, axis, increment)
 RISKY_COMBOS = [
-    (set(["vault_write", "internet"]), "data_exfil_risk", 5),
-    (set(["file_write", "internet"]), "data_exfil_risk", 4),
+    (frozenset({"vault_write", "internet"}), "data_exfil_risk", 5),
+    (frozenset({"file_write", "internet"}), "data_exfil_risk", 4),
 ]
 
 
 class PrometheusFuse:
     """Load-bearing safety fuse. Every agent action passes through here."""
+
+    llm: _LLMClient
+    redis: _RedisClient
+    obs: _ObsidianBridge | None
+    webhook: str
 
     def __init__(
         self,
@@ -262,10 +198,10 @@ class PrometheusFuse:
         redis_client: _RedisClient,
         obsidian_bridge: _ObsidianBridge | None = None,
     ):
-        self.llm: _LLMClient = anthropic_client
-        self.redis: _RedisClient = redis_client
-        self.obs: _ObsidianBridge | None = obsidian_bridge
-        self.webhook: str = os.getenv("PROMETHEUS_ALERT_WEBHOOK", "")
+        self.llm = anthropic_client
+        self.redis = redis_client
+        self.obs = obsidian_bridge
+        self.webhook = os.getenv("PROMETHEUS_ALERT_WEBHOOK", "")
 
     async def evaluate(self, action: AgentAction) -> FuseDecision:
         """
@@ -321,28 +257,81 @@ class PrometheusFuse:
 
         return dec
 
+    def _payload_to_text(self, payload: Mapping[str, object]) -> str:
+        return json.dumps(dict(payload), default=str).lower()
+
+    def _permission_set(self, payload: Mapping[str, object]) -> set[str]:
+        permissions = payload.get("permissions")
+        if isinstance(permissions, (list, tuple, set, frozenset)):
+            permission_items = cast(Iterable[object], permissions)
+            return {item for item in permission_items if isinstance(item, str)}
+        return set()
+
+    def _bump_axis(self, score: IntentScore, axis: str, inc: int) -> None:
+        if axis == "harm_potential":
+            score.harm_potential = min(10, score.harm_potential + inc)
+        elif axis == "deception_index":
+            score.deception_index = min(10, score.deception_index + inc)
+        elif axis == "data_exfil_risk":
+            score.data_exfil_risk = min(10, score.data_exfil_risk + inc)
+        elif axis == "autonomy_override":
+            score.autonomy_override = min(10, score.autonomy_override + inc)
+        elif axis == "legal_exposure":
+            score.legal_exposure = min(10, score.legal_exposure + inc)
+        elif axis == "cascade_risk":
+            score.cascade_risk = min(10, score.cascade_risk + inc)
+
+    def _score_from_mapping(self, data: Mapping[str, object]) -> IntentScore | None:
+        updates: dict[str, int] = {}
+        for field_name in SCORE_FIELDS:
+            if field_name not in data:
+                continue
+            raw = data[field_name]
+            if isinstance(raw, bool):
+                return None
+            if not isinstance(raw, (int, float, str)):
+                return None
+            try:
+                bounded = max(0, min(10, int(raw)))
+            except (TypeError, ValueError):
+                return None
+            updates[field_name] = bounded
+        return IntentScore(**updates)
+
+    def _mapping_from_object(self, value: object) -> dict[str, object] | None:
+        if not isinstance(value, Mapping):
+            return None
+        mapping = cast(Mapping[object, object], value)
+        return {str(key): item for key, item in mapping.items()}
+
+    def _text_from_llm_response(self, response: _LLMMessageResponse) -> str:
+        if not response.content:
+            return ""
+        return response.content[0].text.strip()
+
     def _heuristic(self, action: AgentAction) -> IntentScore:
         """Score action using keyword matching on description and payload."""
-        s = IntentScore()
-        text = f"{action.description} {_payload_to_text(action.payload)}".lower()
-        perms = _permission_set(action.payload.get("permissions"))
+        score = IntentScore()
+        payload = action.payload
+        text = f"{action.description} {self._payload_to_text(payload)}"
+        permissions = self._permission_set(payload)
 
         for kw, axis, inc in SIGNALS:
             if kw in text:
-                _bump_axis(s, axis, inc)
+                self._bump_axis(score, axis, inc)
 
         for combo, axis, inc in RISKY_COMBOS:
-            if combo.issubset(perms):
-                _bump_axis(s, axis, inc)
+            if combo.issubset(permissions):
+                self._bump_axis(score, axis, inc)
 
-        return s
+        return score
 
     async def _llm_score(
         self, action: AgentAction, baseline: IntentScore
     ) -> IntentScore:
         """Re-score action via LLM for ambiguous cases (15-45 range)."""
         try:
-            r = await self.llm.messages.create(
+            response = await self.llm.messages.create(
                 model="claude-haiku-4-5-20251001",
                 max_tokens=100,
                 messages=[
@@ -352,16 +341,14 @@ class PrometheusFuse:
                     }
                 ],
             )
-            d = _mapping_from_object(_json_object(r.content[0].text.strip()))
-            if d is None:
+            loaded: object = cast(
+                object, json.loads(self._text_from_llm_response(response))
+            )
+            data = self._mapping_from_object(loaded)
+            if data is None:
                 return baseline
-            scores: dict[str, int] = {}
-            for key in _SCORE_KEYS:
-                raw = _bounded_int(d.get(key))
-                if raw is None:
-                    return baseline
-                scores[key] = raw
-            return IntentScore(**scores)
+            scored = self._score_from_mapping(data)
+            return scored if scored is not None else baseline
         except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
             log.debug(f"[FUSE] LLM score failed, using baseline: {e}")
             return baseline
@@ -372,7 +359,7 @@ class PrometheusFuse:
     async def _remediate(self, action: AgentAction) -> AgentAction | None:
         """Attempt to rewrite action to be ethically compliant."""
         try:
-            r = await self.llm.messages.create(
+            response = await self.llm.messages.create(
                 model="claude-haiku-4-5-20251001",
                 max_tokens=400,
                 messages=[
@@ -382,23 +369,30 @@ class PrometheusFuse:
                     }
                 ],
             )
-            d = _mapping_from_object(_json_object(r.content[0].text.strip()))
-            if d is None or d.get("impossible"):
+            loaded: object = cast(
+                object, json.loads(self._text_from_llm_response(response))
+            )
+            data = self._mapping_from_object(loaded)
+            if data is None:
                 return None
-            action_type = d.get("action_type")
-            description = d.get("description")
-            payload = _mapping_from_object(d.get("payload", {}))
-            if (
-                not isinstance(action_type, str)
-                or not isinstance(description, str)
-                or payload is None
-            ):
+
+            if data.get("impossible"):
                 return None
+
+            action_type = data.get("action_type")
+            description = data.get("description")
+            payload = data.get("payload", {})
+            payload_map = self._mapping_from_object(payload)
+            if not isinstance(action_type, str) or not isinstance(description, str):
+                return None
+            if payload_map is None:
+                return None
+
             return AgentAction(
                 agent_name=action.agent_name,
                 action_type=action_type,
                 description=description,
-                payload=dict(payload),
+                payload=payload_map,
                 session_id=action.session_id,
                 trace_id=action.trace_id + "_remediated",
             )
@@ -429,7 +423,7 @@ class PrometheusFuse:
             return
         try:
             async with httpx.AsyncClient() as c:
-                _ = await c.post(
+                _response = await c.post(
                     self.webhook,
                     json={
                         "level": dec.level.value,
