@@ -17,10 +17,11 @@ Levels:
 import json
 import logging
 import os
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Optional
+from typing import Protocol, cast
 
 import httpx
 
@@ -28,6 +29,109 @@ log = logging.getLogger("prometheus")
 
 # Audit log cap for Redis
 AUDIT_CAP = 1000
+
+
+class _TextBlock(Protocol):
+    text: str
+
+
+class _LLMResponse(Protocol):
+    content: Sequence[_TextBlock]
+
+
+class _LLMMessages(Protocol):
+    async def create(self, **kwargs: object) -> _LLMResponse: ...
+
+
+class _LLMClient(Protocol):
+    messages: _LLMMessages
+
+
+class _RedisClient(Protocol):
+    async def lpush(self, key: str, *values: object) -> object: ...
+
+    async def ltrim(self, key: str, start: int, end: int) -> object: ...
+
+    async def set(self, key: str, value: object) -> object: ...
+
+    async def exists(self, key: str) -> int: ...
+
+
+class _ObsidianBridge(Protocol):
+    async def read_note(self, path: str) -> str | None: ...
+
+    async def write_note(self, path: str, content: str) -> bool: ...
+
+    async def search(self, query: str) -> list[dict[str, object]]: ...
+
+    async def append_note(self, path: str, content: str) -> bool: ...
+
+
+_SCORE_KEYS = (
+    "harm_potential",
+    "deception_index",
+    "data_exfil_risk",
+    "autonomy_override",
+    "legal_exposure",
+    "cascade_risk",
+)
+
+
+def _json_object(text: str) -> object:
+    return cast(object, json.loads(text))
+
+
+def _mapping_from_object(value: object) -> Mapping[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    typed_value = cast(dict[object, object], value)
+    for key in typed_value:
+        if not isinstance(key, str):
+            return None
+    return cast(Mapping[str, object], typed_value)
+
+
+def _payload_to_text(payload: Mapping[str, object]) -> str:
+    try:
+        return json.dumps(payload)
+    except (TypeError, ValueError):
+        return str(dict(payload))
+
+
+def _permission_set(value: object) -> set[str]:
+    if not isinstance(value, (list, tuple, set, frozenset)):
+        return set()
+    permissions: set[str] = set()
+    for item in cast(Iterable[object], value):
+        if isinstance(item, str):
+            permissions.add(item)
+    return permissions
+
+
+def _bounded_int(value: object | None) -> int | None:
+    if value is None:
+        return None
+    if not isinstance(value, (int, float, str, bytes, bytearray)):
+        return None
+    try:
+        return max(0, min(10, int(value)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _bump_axis(score: "IntentScore", axis: str, increment: int) -> None:
+    if axis == "harm_potential":
+        score.harm_potential = min(10, score.harm_potential + increment)
+    elif axis == "deception_index":
+        score.deception_index = min(10, score.deception_index + increment)
+    elif axis == "data_exfil_risk":
+        score.data_exfil_risk = min(10, score.data_exfil_risk + increment)
+    elif axis == "autonomy_override":
+        score.autonomy_override = min(10, score.autonomy_override + increment)
+    elif axis == "legal_exposure":
+        score.legal_exposure = min(10, score.legal_exposure + increment)
+    elif axis == "cascade_risk":
+        score.cascade_risk = min(10, score.cascade_risk + increment)
 
 
 class FuseLevel(Enum):
@@ -91,7 +195,7 @@ class AgentAction:
     agent_name: str
     action_type: str
     description: str
-    payload: dict = field(default_factory=dict)
+    payload: dict[str, object] = field(default_factory=dict)
     session_id: str = ""
     trace_id: str = ""
 
@@ -104,7 +208,7 @@ class FuseDecision:
     score: IntentScore
     level: FuseLevel
     approved: bool
-    remediated_action: Optional[AgentAction] = None
+    remediated_action: AgentAction | None = None
     reason: str = ""
     timestamp: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
@@ -154,14 +258,14 @@ class PrometheusFuse:
 
     def __init__(
         self,
-        anthropic_client: Any,
-        redis_client: Any,
-        obsidian_bridge: Optional[Any] = None,
+        anthropic_client: _LLMClient,
+        redis_client: _RedisClient,
+        obsidian_bridge: _ObsidianBridge | None = None,
     ):
-        self.llm = anthropic_client
-        self.redis = redis_client
-        self.obs = obsidian_bridge
-        self.webhook = os.getenv("PROMETHEUS_ALERT_WEBHOOK", "")
+        self.llm: _LLMClient = anthropic_client
+        self.redis: _RedisClient = redis_client
+        self.obs: _ObsidianBridge | None = obsidian_bridge
+        self.webhook: str = os.getenv("PROMETHEUS_ALERT_WEBHOOK", "")
 
     async def evaluate(self, action: AgentAction) -> FuseDecision:
         """
@@ -220,16 +324,16 @@ class PrometheusFuse:
     def _heuristic(self, action: AgentAction) -> IntentScore:
         """Score action using keyword matching on description and payload."""
         s = IntentScore()
-        text = f"{action.description} {json.dumps(action.payload)}".lower()
-        perms = set(action.payload.get("permissions", []))
+        text = f"{action.description} {_payload_to_text(action.payload)}".lower()
+        perms = _permission_set(action.payload.get("permissions"))
 
         for kw, axis, inc in SIGNALS:
             if kw in text:
-                setattr(s, axis, min(10, getattr(s, axis) + inc))
+                _bump_axis(s, axis, inc)
 
         for combo, axis, inc in RISKY_COMBOS:
             if combo.issubset(perms):
-                setattr(s, axis, min(10, getattr(s, axis) + inc))
+                _bump_axis(s, axis, inc)
 
         return s
 
@@ -248,8 +352,16 @@ class PrometheusFuse:
                     }
                 ],
             )
-            d = json.loads(r.content[0].text.strip())
-            return IntentScore(**{k: max(0, min(10, int(v))) for k, v in d.items()})
+            d = _mapping_from_object(_json_object(r.content[0].text.strip()))
+            if d is None:
+                return baseline
+            scores: dict[str, int] = {}
+            for key in _SCORE_KEYS:
+                raw = _bounded_int(d.get(key))
+                if raw is None:
+                    return baseline
+                scores[key] = raw
+            return IntentScore(**scores)
         except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
             log.debug(f"[FUSE] LLM score failed, using baseline: {e}")
             return baseline
@@ -257,7 +369,7 @@ class PrometheusFuse:
             log.warning(f"[FUSE] Unexpected error in LLM scoring: {e}")
             return baseline
 
-    async def _remediate(self, action: AgentAction) -> Optional[AgentAction]:
+    async def _remediate(self, action: AgentAction) -> AgentAction | None:
         """Attempt to rewrite action to be ethically compliant."""
         try:
             r = await self.llm.messages.create(
@@ -270,14 +382,23 @@ class PrometheusFuse:
                     }
                 ],
             )
-            d = json.loads(r.content[0].text.strip())
-            if d.get("impossible"):
+            d = _mapping_from_object(_json_object(r.content[0].text.strip()))
+            if d is None or d.get("impossible"):
+                return None
+            action_type = d.get("action_type")
+            description = d.get("description")
+            payload = _mapping_from_object(d.get("payload", {}))
+            if (
+                not isinstance(action_type, str)
+                or not isinstance(description, str)
+                or payload is None
+            ):
                 return None
             return AgentAction(
                 agent_name=action.agent_name,
-                action_type=d["action_type"],
-                description=d["description"],
-                payload=d.get("payload", {}),
+                action_type=action_type,
+                description=description,
+                payload=dict(payload),
                 session_id=action.session_id,
                 trace_id=action.trace_id + "_remediated",
             )
@@ -299,8 +420,8 @@ class PrometheusFuse:
             "approved": dec.approved,
             "reason": dec.reason,
         }
-        await self.redis.lpush("prometheus:audit", json.dumps(rec))
-        await self.redis.ltrim("prometheus:audit", 0, AUDIT_CAP - 1)
+        _ = await self.redis.lpush("prometheus:audit", json.dumps(rec))
+        _ = await self.redis.ltrim("prometheus:audit", 0, AUDIT_CAP - 1)
 
     async def _alert(self, dec: FuseDecision) -> None:
         """Send webhook alert for high-risk decisions."""
@@ -308,7 +429,7 @@ class PrometheusFuse:
             return
         try:
             async with httpx.AsyncClient() as c:
-                await c.post(
+                _ = await c.post(
                     self.webhook,
                     json={
                         "level": dec.level.value,
@@ -325,12 +446,12 @@ class PrometheusFuse:
 
     async def _hard_kill(self, name: str) -> None:
         """Lock agent in Redis for BLACK-tier threats."""
-        await self.redis.set(
+        _ = await self.redis.set(
             f"prometheus:locked:{name}", datetime.now(timezone.utc).isoformat()
         )
         log.critical(f"[FUSE] HARD KILL - {name} locked.")
 
     @staticmethod
-    async def is_locked(redis_client: Any, name: str) -> bool:
+    async def is_locked(redis_client: _RedisClient, name: str) -> bool:
         """Check if agent is locked."""
         return bool(await redis_client.exists(f"prometheus:locked:{name}"))
