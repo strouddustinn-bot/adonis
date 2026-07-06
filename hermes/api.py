@@ -7,13 +7,18 @@ Receives user messages, runs them through the Glasswing pipeline, returns
 answers. Multi-agent goals route to Atlas via the Redis pub/sub bus.
 
 Endpoints:
-  POST /ask     — single-turn Q&A through Glasswing cache+context+soul
-  POST /task    — multi-agent goal orchestrated by Atlas
-  GET  /health  — runtime liveness + dependency status
-  GET  /audit   — recent Prometheus audit records
-  GET  /ges     — current Glasswing Efficiency Score report
+  POST /ask         — single-turn Q&A through Glasswing cache+context+soul
+  POST /ask/stream  — same, streamed token-by-token over Server-Sent Events
+  POST /task        — multi-agent goal orchestrated by Atlas
+  GET  /health      — runtime liveness + dependency status
+  GET  /audit       — recent Prometheus audit records
+  GET  /ges         — current Glasswing Efficiency Score report
+
+When HERMES_API_KEY is set, every request except GET /health must carry
+`Authorization: Bearer <HERMES_API_KEY>`.
 """
 import asyncio
+import hmac
 import json
 import logging
 import os
@@ -22,13 +27,29 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import (
+    FileResponse,
+    JSONResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 log = logging.getLogger("hermes")
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+def _sse(obj: dict) -> bytes:
+    """Encode one Server-Sent Events `data:` frame."""
+    return f"data: {json.dumps(obj)}\n\n".encode()
+
+# Paths reachable without the bearer token when HERMES_API_KEY is set.
+# /health stays open so liveness/readiness probes keep working.
+# Docs paths stay open so developers can still browse the API locally.
+_AUTH_EXEMPT_PATHS    = {"/health", "/docs", "/openapi.json", "/redoc"}
+_AUTH_EXEMPT_PREFIXES = ("/static/",)
 
 
 class AskIn(BaseModel):
@@ -65,6 +86,21 @@ def build_app(*, llm, redis, fuse, governor, model: str) -> FastAPI:
     app.state.fuse     = fuse
     app.state.governor = governor
     app.state.model    = model
+
+    @app.middleware("http")
+    async def _bearer_auth(request: Request, call_next):
+        """Require `Authorization: Bearer <HERMES_API_KEY>` on every request
+        when the key is configured. No key set → auth disabled (local use).
+        The key is read per-request so it can be rotated without a rebuild."""
+        api_key = os.getenv("HERMES_API_KEY", "").strip()
+        path = request.url.path
+        exempt = path in _AUTH_EXEMPT_PATHS or any(path.startswith(p) for p in _AUTH_EXEMPT_PREFIXES)
+        if api_key and not exempt:
+            provided = request.headers.get("authorization", "")
+            expected = f"Bearer {api_key}"
+            if not (provided and hmac.compare_digest(provided, expected)):
+                return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        return await call_next(request)
 
     @app.post("/ask")
     async def ask(body: AskIn):
@@ -113,6 +149,56 @@ def build_app(*, llm, redis, fuse, governor, model: str) -> FastAPI:
             "efficiency": prep.efficiency,
             "session_id": body.session_id,
         }
+
+    @app.post("/ask/stream")
+    async def ask_stream(body: AskIn):
+        """Same pipeline as /ask, but streams the answer token-by-token over
+        Server-Sent Events. Frame types: meta (routing info), delta (text
+        chunk), done (final usage), error. Cache hits stream as a single
+        delta. Cache + GES bookkeeping mirrors /ask."""
+        ctx = governor.context
+        await ctx.append_turn(body.session_id, "user", body.message)
+        prep = await governor.prepare(body.session_id, body.message)
+
+        async def _gen():
+            yield _sse({"type": "meta", "cache_hit": prep.cache_hit,
+                        "agents": prep.active_agents, "think": prep.think_depth,
+                        "session_id": body.session_id})
+
+            if prep.cache_hit:
+                await ctx.append_turn(body.session_id, "assistant", prep.cached_result)
+                yield _sse({"type": "delta", "text": prep.cached_result})
+                yield _sse({"type": "done", "cache_hit": True})
+                return
+
+            acc: list[str] = []
+            try:
+                async with llm.messages.stream(
+                    model=model, max_tokens=body.max_tokens,
+                    system=prep.system, messages=prep.messages,
+                ) as stream:
+                    async for text in stream.text_stream:
+                        acc.append(text)
+                        yield _sse({"type": "delta", "text": text})
+                    final = await stream.get_final_message()
+            except Exception as e:
+                log.error("stream failed: %s", e)
+                yield _sse({"type": "error", "detail": str(e)})
+                return
+
+            answer = "".join(acc)
+            tokens = ((final.usage.input_tokens + final.usage.output_tokens)
+                      if getattr(final, "usage", None) else 0)
+            await governor.cache_result(body.message, answer)
+            await ctx.append_turn(body.session_id, "assistant", answer)
+            governor.record_ges(
+                body.session_id, prep.active_agents,
+                tokens_used=max(1, tokens), tasks_done=1,
+                cache_hit=False, speed_ms=prep.efficiency.get("prep_ms", 0),
+            )
+            yield _sse({"type": "done", "cache_hit": False, "tokens": tokens})
+
+        return StreamingResponse(_gen(), media_type="text/event-stream")
 
     @app.post("/task")
     async def task(body: TaskIn):
@@ -258,16 +344,19 @@ def build_app(*, llm, redis, fuse, governor, model: str) -> FastAPI:
     @app.get("/capabilities")
     async def capabilities_matrix():
         from tools.registry import REGISTRY
-        from openclaw.agents.atlas    import AtlasAgent
-        from openclaw.agents.forge    import ForgeAgent
-        from openclaw.agents.mirror   import MirrorAgent
-        from openclaw.agents.scout    import ScoutAgent
-        from openclaw.agents.sentinel import SentinelAgent
-        from openclaw.agents.smith    import SmithAgent
-        from openclaw.agents.vector   import VectorAgent
+        from openclaw.agents.atlas     import AtlasAgent
+        from openclaw.agents.data      import DataAgent
+        from openclaw.agents.forge     import ForgeAgent
+        from openclaw.agents.mirror    import MirrorAgent
+        from openclaw.agents.scheduler import SchedulerAgent
+        from openclaw.agents.scout     import ScoutAgent
+        from openclaw.agents.sentinel  import SentinelAgent
+        from openclaw.agents.smith     import SmithAgent
+        from openclaw.agents.vector    import VectorAgent
         agent_caps = {a.NAME: sorted(a.CAPABILITIES) for a in [
             AtlasAgent, ForgeAgent, MirrorAgent, ScoutAgent,
             SentinelAgent, SmithAgent, VectorAgent,
+            DataAgent, SchedulerAgent,
         ]}
         return {
             "agents": agent_caps,

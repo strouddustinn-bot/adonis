@@ -16,18 +16,18 @@ class TraceAnalyzer:
         self.redis = redis_client
 
     async def get_trace(self, trace_id: str) -> List[Dict[str, Any]]:
-        \"\"\"Fetch all events for a specific trace from Redis.\"\"\"
+        """Fetch all events for a specific trace from Redis."""
         if not self.redis: return []
         raw = await self.redis.lrange(f"adonis:trace:{trace_id}", 0, -1)
         return [json.loads(e) for e in reversed(raw)]
 
     async def replay_and_compare(self, trace_id: str, agent_instance, input_data: Any) -> Dict[str, Any]:
-        \"\"\"
+        """
         Execution Replay:
         1. Loads the original trace to find the la-baseline.
         2. Executes the agent with the SAME input.
         3. Compares the la-new trace and output to the baseline.
-        \"\"\"
+        """
         baseline_events = await self.get_trace(trace_id)
         if not baseline_events:
             return {"status": "error", "reason": "Trace not found"}
@@ -60,10 +60,10 @@ class TraceAnalyzer:
         return 0.0 if old == new else 1.0
 
     async def perform_rca(self, trace_id: str) -> str:
-        \"\"\"
+        """
         Automated Root-Cause Analysis:
         Feeds the entire trace to the LLM to find the logical failure point.
-        \"\"\"
+        """
         events = await self.get_trace(trace_id)
         trace_text = json.dumps([e.__dict__ if hasattr(e, '__dict__') else e for e in events], indent=2)
         
@@ -82,11 +82,11 @@ class TraceAnalyzer:
         return resp.content[0].text.strip()
 
     async def check_drift_alert(self, agent_name: str, metric_key: str = "success_rate") -> bool:
-        \"\"\"
+        """
         Statistical Drift Detection:
         Compares the last 10 runs with the baseline (last 100).
         Siren if deviation > 15%.
-        \"\"\"
+        """
         if not self.redis: return False
         
         # Fetch historical metrics from the AutoEval pipeline

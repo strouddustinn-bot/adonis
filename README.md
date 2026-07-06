@@ -44,8 +44,8 @@ compression/   semantic-atom compression (Qwen-style dense token packing)
 persona/       hash-protected soul layer (model-family adapters)
 routing/       MoE agent router (Qwen3-30B-A3B-style top-K activation)
 prometheus/    ethical fuse + boot-integrity gate (do not edit casually)
-openclaw/      agents: atlas, mirror, smith, forge, scout, vector, sentinel
-tools/         tool registry + builtin tools + minimal MCP stdio client
+openclaw/      agents: atlas, mirror, smith, forge, scout, vector, sentinel, data, scheduler
+tools/         tool registry + builtin tools + sandboxed MCP stdio client
 memory/        Obsidian bridge (long-term vault)
 supervisord.py async runtime supervisor
 bootstrap.py   interactive setup wizard
@@ -86,9 +86,11 @@ Compression is LLM-driven: each block is distilled to subject-predicate-object a
 
 Adonis ships with a small built-in tool catalog (`http_fetch`, `web_search` via DuckDuckGo, `arxiv_search`, `vault_read`, `vault_append`, `now`). Any external MCP server can be added via the `MCP_SERVERS` JSON in `.env`. Every tool call is gated through Prometheus.
 
+External MCP servers are **sandboxed** (`tools/sandbox.py`): each plugin subprocess receives only a minimal base environment (`PATH`, `HOME`, `LANG`, …) plus its own declared `env`, so host secrets like `ANTHROPIC_API_KEY` are never leaked into third-party processes. Optionally restrict which executables may launch (`MCP_ALLOWED_COMMANDS`), wrap them in bubblewrap (`MCP_SANDBOX=bwrap`), and apply POSIX resource limits (`MCP_RLIMIT_*`). See `.env.example`.
+
 ## Self-improvement
 
-- **Mirror** runs a recurring cycle: collect GES → identify worst-performing agent → propose a prompt rewrite → benchmark old vs new → log to the Obsidian vault for human review. (By default, Mirror does *not* edit source files — proposals go to `SELF/improvement_queue.md` in the vault. Flipping this to actually rewrite agent code is one fuse-gated edit away.)
+- **Mirror** runs a recurring cycle: collect GES → identify worst-performing agent → propose a prompt rewrite → benchmark old vs new → adopt only if it beats baseline. By default (`MIRROR_AUTOWRITE=0`) adoption just logs the proposal to `SELF/improvement_queue.md` for human review. Set `MIRROR_AUTOWRITE=1` and Mirror will actually adopt the winning rewrite — **after** clearing the Prometheus fuse — by persisting an optimised system directive to a runtime override store that every agent layers into its next call. This never edits source files and is fully reversible: `mirror.rollback {"agent":"<name>"}` clears the override.
 - **Smith** classifies every failure (syntax / logic / tool / timeout / prometheus-block), generates a fix, gates it through the fuse, and records the pattern.
 - **Wins and losses** are logged per agent. Every 10th win is distilled into the L3 semantic vault, so future similar tasks can retrieve prior winning approaches at routing time.
 
