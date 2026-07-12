@@ -121,6 +121,8 @@ async def _amain() -> int:
 
     if not agents:
         log.error("No agents constructed; exiting.")
+        if obsidian:
+            await obsidian.aclose()
         return 1
 
     stop = asyncio.Event()
@@ -177,6 +179,8 @@ async def _amain() -> int:
     await asyncio.gather(*tasks, return_exceptions=True)
     await detach_mcp_servers(mcp_servers)
     await fact_graph.shutdown()
+    if obsidian:
+        await obsidian.aclose()
     await redis.aclose()
     log.info("Clean shutdown.")
     return 0
