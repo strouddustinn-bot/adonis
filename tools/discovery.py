@@ -5,9 +5,9 @@ tools/discovery.py
 Autonomous Schema Discovery.
 Fetches OpenAPI/Swagger specs and converts them into Adonis ToolSchemas.
 """
-import httpx, json, logging
-from typing import List, Dict, Any
-from tools.registry import ToolSchema, DynamicToolRegistry
+import httpx
+import logging
+from tools.registry import ToolSchema
 
 log = logging.getLogger("discovery")
 

@@ -7,9 +7,6 @@ All tests use FakeLLM / inline callables — no real Anthropic client, no Redis,
 no disk I/O beyond the candidates/ and skills/ directories the harness owns.
 """
 import json
-import os
-import tempfile
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest

@@ -30,7 +30,6 @@ Anything else is sent through `/ask` so users can just type freely.
 import asyncio
 import json
 import logging
-import os
 import uuid
 from typing import Optional
 
@@ -65,11 +64,14 @@ class TelegramBridge:
         self.offset   = 0
         self.sessions: dict[int, str] = {}
         self._stopping = False
+        # asyncio only holds a weak reference to a task; without tracking it
+        # here a per-update handler could be garbage-collected mid-flight.
+        self._background_tasks: set[asyncio.Task] = set()
 
     # ── lifecycle ────────────────────────────────────────────────────────
 
     async def run(self) -> None:
-        info = await self._api("getMe", method="GET")
+        info = await self._api("getMe", method_get=True)
         if not info or not info.get("ok"):
             log.error("Telegram getMe failed: %s", info)
             return
@@ -84,7 +86,9 @@ class TelegramBridge:
                 updates = await self._poll()
                 backoff = 1.0
                 for upd in updates:
-                    asyncio.create_task(self._handle(upd))
+                    t = asyncio.create_task(self._handle(upd))
+                    self._background_tasks.add(t)
+                    t.add_done_callback(self._background_tasks.discard)
             except asyncio.CancelledError:
                 break
             except Exception as e:

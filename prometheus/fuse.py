@@ -17,6 +17,8 @@ Levels:
 import json
 import logging
 import os
+import re
+import unicodedata
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -183,6 +185,35 @@ RISKY_COMBOS = [
     (frozenset({"file_write", "internet"}), "data_exfil_risk", 4),
 ]
 
+# ── Text normalization ────────────────────────────────────────────────────────
+# The keyword heuristic is only as strong as its text normalization. Three
+# bypass classes are closed here:
+#   1. Case variation ("KILL", "kIlL")           -> fold everything to lowercase
+#   2. Unicode confusables (Cyrillic "к"/"а"/"о", fullwidth "ｋｉｌｌ")
+#                                                 -> NFKC + homoglyph mapping
+#   3. Character-level obfuscation ("k_i_l_l", "k.i.l.l", "k1ll", a stray
+#      zero-width space or newline mid-word)      -> a de-obfuscated candidate
+#                                                     pass, scoped per-token so
+#                                                     unrelated words never get
+#                                                     merged into each other
+_ZERO_WIDTH_RE = re.compile("[​‌‍﻿⁠]")
+_SEPARATOR_DELETE = str.maketrans("", "", "._-")
+
+# Common single-character confusables (Cyrillic/Greek lookalikes). Not
+# exhaustive, but covers the characters attackers reach for first because
+# they're a single keystroke away from the Latin original.
+_HOMOGLYPH_MAP = str.maketrans(
+    {
+        "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "у": "y", "х": "x",
+        "і": "i", "ѕ": "s", "һ": "h", "ԁ": "d", "ⅼ": "l", "к": "k", "α": "a",
+        "β": "b", "ο": "o",
+    }
+)
+
+_LEET_MAP = str.maketrans(
+    {"0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t", "@": "a", "$": "s"}
+)
+
 
 class PrometheusFuse:
     """Load-bearing safety fuse. Every agent action passes through here."""
@@ -309,16 +340,80 @@ class PrometheusFuse:
             return ""
         return response.content[0].text.strip()
 
+    def _fold_confusables(self, text: str) -> str:
+        """Lowercase + NFKC (folds fullwidth/compatibility forms) + strip
+        zero-width chars + map common homoglyphs to their Latin lookalike."""
+        normalized = unicodedata.normalize("NFKC", text)
+        normalized = _ZERO_WIDTH_RE.sub("", normalized)
+        return normalized.translate(_HOMOGLYPH_MAP).lower()
+
+    def _obfuscation_candidates(self, folded: str) -> list[str]:
+        """De-obfuscated candidate substrings for single-word signal matching.
+
+        Applies leet substitution, then strips '._-' *within* each
+        whitespace-delimited token (catches 'k_i_l_l', 'k.i.l.l', 'k1ll'),
+        fuses adjacent tokens where one side is a short (<=2 char) fragment
+        (catches a stray separator/newline dropped mid-word, e.g.
+        'kil\\nl'), and fuses maximal runs of consecutive short (<=2 char)
+        tokens (catches a keyword spelled out one letter per token, e.g.
+        'k i l l'). Fusion is deliberately scoped to short fragments —
+        collapsing the *entire* text would merge unrelated whole words
+        (e.g. "sick illness" -> "sickillness", a false "kill" match). A
+        run of short tokens can still coincidentally spell a false match
+        (e.g. "ok i'll be there" -> "okill"); that's an accepted trade-off
+        for a security-first heuristic, and on its own it can only move a
+        single axis, which alone never clears YELLOW.
+        """
+        tokens = folded.translate(_LEET_MAP).split()
+        stripped = [t.translate(_SEPARATOR_DELETE) for t in tokens]
+        candidates = list(stripped)
+
+        for a, b in zip(stripped, stripped[1:]):
+            if len(a) <= 2 or len(b) <= 2:
+                candidates.append(a + b)
+
+        run: list[str] = []
+        for t in [*stripped, ""]:  # sentinel flushes the final run
+            if t and len(t) <= 2:
+                run.append(t)
+                continue
+            if len(run) >= 2:
+                fused = ""
+                for piece in run:
+                    fused += piece
+                    candidates.append(fused)
+            run = []
+
+        return candidates
+
     def _heuristic(self, action: AgentAction) -> IntentScore:
-        """Score action using keyword matching on description and payload."""
+        """Score action using keyword matching on description and payload.
+
+        Beyond a plain substring check, this also catches: case variation,
+        Unicode homoglyphs/fullwidth forms, separator/leet obfuscation
+        ('k_i_l_l', 'k1ll'), and a multi-word signal (e.g. "bypass
+        prometheus") split across the description and payload, or across
+        two fields, as long as both words are present anywhere in the
+        combined text. The cross-field check is gated to signals whose
+        every constituent word is >=4 chars, to avoid flagging on common
+        short connectors (e.g. "pose as" is deliberately excluded via "as").
+        """
         score = IntentScore()
         payload = action.payload
-        text = f"{action.description} {self._payload_to_text(payload)}"
+        raw_text = f"{action.description} {self._payload_to_text(payload)}"
+        folded = self._fold_confusables(raw_text)
+        candidates = self._obfuscation_candidates(folded)
         permissions = self._permission_set(payload)
 
         for kw, axis, inc in SIGNALS:
-            if kw in text:
+            if kw in folded or any(kw in c for c in candidates):
                 self._bump_axis(score, axis, inc)
+            elif " " in kw or "-" in kw:
+                words = re.split(r"[\s\-]+", kw)
+                if len(words) > 1 and all(len(w) >= 4 for w in words) and all(
+                    re.search(rf"\b{re.escape(w)}\b", folded) for w in words
+                ):
+                    self._bump_axis(score, axis, inc)
 
         for combo, axis, inc in RISKY_COMBOS:
             if combo.issubset(permissions):
@@ -404,7 +499,13 @@ class PrometheusFuse:
             return None
 
     async def _audit(self, dec: FuseDecision) -> None:
-        """Write decision to Redis audit log."""
+        """Write decision to Redis audit log.
+
+        Redis outages must not crash the fuse evaluation (a crash mid-request
+        can leave a caller in an undefined approved/blocked state, and for a
+        RED/BLACK decision the audit call happens *after* the block/kill
+        decision is already made) — so failures here are logged, not raised.
+        """
         rec = {
             "ts": dec.timestamp,
             "agent": dec.action.agent_name,
@@ -414,8 +515,11 @@ class PrometheusFuse:
             "approved": dec.approved,
             "reason": dec.reason,
         }
-        _ = await self.redis.lpush("prometheus:audit", json.dumps(rec))
-        _ = await self.redis.ltrim("prometheus:audit", 0, AUDIT_CAP - 1)
+        try:
+            _ = await self.redis.lpush("prometheus:audit", json.dumps(rec))
+            _ = await self.redis.ltrim("prometheus:audit", 0, AUDIT_CAP - 1)
+        except Exception as e:
+            log.error(f"[FUSE] Audit write failed (Redis unavailable?): {e}")
 
     async def _alert(self, dec: FuseDecision) -> None:
         """Send webhook alert for high-risk decisions."""
@@ -439,13 +543,39 @@ class PrometheusFuse:
             log.error(f"[FUSE] Unexpected error in webhook alert: {e}")
 
     async def _hard_kill(self, name: str) -> None:
-        """Lock agent in Redis for BLACK-tier threats."""
-        _ = await self.redis.set(
-            f"prometheus:locked:{name}", datetime.now(timezone.utc).isoformat()
-        )
-        log.critical(f"[FUSE] HARD KILL - {name} locked.")
+        """Lock agent in Redis for BLACK-tier threats.
+
+        The BLACK-tier decision itself is never approved regardless of
+        whether this persists (see `evaluate`: `dec.approved` defaults to
+        False and is never set True on the BLACK path), so a Redis outage
+        here can't let *this* action through. It can only fail to persist
+        the lock for *future* calls — which is why it's logged at CRITICAL,
+        not swallowed silently, so an outage during a hard-kill is loud.
+        """
+        try:
+            _ = await self.redis.set(
+                f"prometheus:locked:{name}", datetime.now(timezone.utc).isoformat()
+            )
+            log.critical(f"[FUSE] HARD KILL - {name} locked.")
+        except Exception as e:
+            log.critical(
+                f"[FUSE] HARD KILL - {name} could NOT be persisted "
+                f"(Redis unavailable?): {e}"
+            )
 
     @staticmethod
     async def is_locked(redis_client: _RedisClient, name: str) -> bool:
-        """Check if agent is locked."""
-        return bool(await redis_client.exists(f"prometheus:locked:{name}"))
+        """Check if agent is locked.
+
+        Fails *closed*: if Redis can't be reached to answer the question,
+        the agent is treated as locked rather than raising (or worse,
+        silently returning False and letting a hard-killed agent back in).
+        """
+        try:
+            return bool(await redis_client.exists(f"prometheus:locked:{name}"))
+        except Exception as e:
+            log.error(
+                f"[FUSE] is_locked check failed for '{name}' (Redis "
+                f"unavailable?); failing closed (treated as locked): {e}"
+            )
+            return True

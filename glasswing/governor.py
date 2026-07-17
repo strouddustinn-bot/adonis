@@ -13,7 +13,9 @@ Per-call pipeline (in order):
 
 Glasswing rule: if an answer exists in Redis/Obsidian in <200ms, the LLM is never called.
 """
-import os, json, logging, time, asyncio, hashlib
+import logging
+import time
+import hashlib
 from dataclasses import dataclass, field
 
 log = logging.getLogger("glasswing")

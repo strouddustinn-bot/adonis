@@ -8,7 +8,11 @@ via Redis pub/sub, collects results, and assembles the final response.
 
 Uses asyncio.gather() for parallel independent sub-tasks (Glasswing rule #3).
 """
-import os, re, json, logging, asyncio, uuid
+import re
+import json
+import logging
+import asyncio
+import uuid
 from routing.planner import HierarchicalPlanner
 from openclaw.base_agent import BaseAgent
 from openclaw.contracts import Contract, ContractIn, ContractOut

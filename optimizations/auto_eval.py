@@ -5,9 +5,11 @@ auto_eval.py
 Automated Evaluation Loop for Adonis Skills.
 Implements synthetic test generation, ensemble judging, and metric tracking.
 """
-import asyncio, json, logging, time, hashlib
-from dataclasses import dataclass, field
-from typing import List, Dict, Any, Tuple
+import json
+import logging
+import time
+from dataclasses import dataclass
+from typing import List, Any, Tuple
 from prometheus.fuse import PrometheusFuse # Ensure ethics check on tests
 
 log = logging.getLogger("auto_eval")
@@ -76,7 +78,8 @@ class AutoEvalPipeline:
                 messages=[{"role": "user", "content": judge_prompt}]
             )
             small_pass = "YES" in s_res.content[0].text.upper()
-        except: small_pass = False
+        except Exception:
+            small_pass = False
 
         # 3. Large Model Judge (only if small model is uncertain or it's a high-risk case)
         # For this implementation, we weight (Small: 0.3, Large: 0.7)
@@ -146,9 +149,16 @@ class AutoEvalPipeline:
         
         current_metric = await self.evaluate_skill(skill_name, skill_description, execution_fn)
         new_metric = await self.evaluate_skill(f"{skill_name}_canary", skill_description, new_version_fn)
-        
+
+        # evaluate_skill returns None when synthetic test generation fails
+        # (e.g. a transient LLM error) — treat that as "cannot promote" rather
+        # than crashing with an AttributeError on the missing metric.
+        if current_metric is None or new_metric is None:
+            log.warn(f"[CANARY] Promotion REJECTED: could not evaluate {skill_name} (synthetic test generation failed).")
+            return False
+
         log.info(f"[CANARY] Results: Current={current_metric.success_rate}, New={new_metric.success_rate}")
-        
+
         if new_metric.success_rate >= threshold and new_metric.success_rate >= current_metric.success_rate:
             log.info(f"[CANARY] Promotion SUCCESS: {skill_name} upgraded.")
             return True # Promote

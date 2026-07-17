@@ -4,9 +4,12 @@ observability/tracer.py
 ======================
 Adonis Trace System:Decision-level instrumentation, trace persistence, and replay capabilities.
 """
-import uuid, time, json, logging, asyncio
+import uuid
+import time
+import json
+import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 log = logging.getLogger("tracer")
 
@@ -29,7 +32,7 @@ class AdonisTracer:
         self.current_trace_id = trace_id or str(uuid.uuid4())
         return self.current_trace_id
 
-    async def record(self, agent: str, event_type: str, payload: Any, metadata: Dict[str, Any] = None):
+    async def record(self, agent: str, event_type: str, payload: Any, metadata: Dict[str, Any] | None = None):
         if not self.current_trace_id:
             return
 

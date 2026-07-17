@@ -16,7 +16,6 @@ Also handles Qwen3-style thinking mode selection (off / shallow / deep).
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 log = logging.getLogger("moe_router")
 

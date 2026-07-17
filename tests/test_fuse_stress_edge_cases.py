@@ -8,10 +8,7 @@ webhook failures, and extreme values.
 """
 
 import json
-import os
-from unittest.mock import AsyncMock, patch
 
-import pytest
 
 from prometheus.fuse import (
     AgentAction,
@@ -618,7 +615,10 @@ class TestPayloadInjection:
 
 class TestRedisFailures:
     async def test_redis_connection_error_on_audit(self, fake_llm):
-        """Redis raises ConnectionError during audit — should propagate or handle."""
+        """Redis raises ConnectionError during audit — the fuse must fail
+        safe (log and continue), not crash. A crash mid-evaluate() would
+        leave the caller with no decision at all, which is worse than a
+        missed audit entry."""
         redis = FakeRedis()
         original_lpush = redis.lpush
 
@@ -629,11 +629,14 @@ class TestRedisFailures:
         fuse = _fuse(redis, fake_llm)
         # YELLOW triggers audit
         action = AgentAction("agent", "act", "password illegal")
-        with pytest.raises(ConnectionError):
-            await fuse.evaluate(action)
+        dec = await fuse.evaluate(action)
+        assert dec.level is FuseLevel.YELLOW
+        assert dec.approved is True
 
     async def test_redis_timeout_on_hard_kill(self, fake_llm):
-        """Redis times out during hard_kill set."""
+        """Redis times out during hard_kill set. The BLACK decision itself
+        must still come back unapproved even though the lock couldn't be
+        persisted — only *future* calls to is_locked() are affected."""
         redis = FakeRedis()
 
         async def failing_set(*args, **kwargs):
@@ -645,8 +648,9 @@ class TestRedisFailures:
             "kill malware exploit phish fraud spoof exfil steal dump database "
             "wiretap unauthorized access self-replicate bypass prometheus"
         )
-        with pytest.raises(TimeoutError):
-            await fuse.evaluate(AgentAction("rogue", "act", desc))
+        dec = await fuse.evaluate(AgentAction("rogue", "act", desc))
+        assert dec.level is FuseLevel.BLACK
+        assert dec.approved is False
 
     async def test_redis_data_corruption_on_get(self):
         """Redis returns corrupted data for is_locked check."""
@@ -658,7 +662,7 @@ class TestRedisFailures:
         assert result is True
 
     async def test_redis_ltrim_failure(self, fake_llm):
-        """Redis ltrim fails after successful lpush."""
+        """Redis ltrim fails after successful lpush — fuse fails safe."""
         redis = FakeRedis()
 
         async def failing_ltrim(*args, **kwargs):
@@ -667,8 +671,9 @@ class TestRedisFailures:
         redis.ltrim = failing_ltrim
         fuse = _fuse(redis, fake_llm)
         action = AgentAction("agent", "act", "password illegal")
-        with pytest.raises(ConnectionError):
-            await fuse.evaluate(action)
+        dec = await fuse.evaluate(action)
+        assert dec.level is FuseLevel.YELLOW
+        assert dec.approved is True
 
     async def test_redis_exists_returns_zero_for_unknown(self, fake_redis):
         result = await PrometheusFuse.is_locked(fake_redis, "nonexistent")

@@ -16,11 +16,9 @@ import asyncio
 import json
 import logging
 import os
-from typing import Optional
-from tools.registry import ToolRegistry, ToolProxy
 from observability.tracer import get_tracer
 import uuid
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from datetime import datetime, timezone
 
 log = logging.getLogger("base_agent")
@@ -54,6 +52,10 @@ class BaseAgent:
         self.tool_proxy = tool_proxy
         self.channel    = f"adonis:agent:{self.NAME}"
         self._alive     = True
+        # asyncio only holds a weak reference to a task; without tracking it
+        # here a fire-and-forget background task could be garbage-collected
+        # mid-flight.
+        self._background_tasks: set[asyncio.Task] = set()
 
     async def _check_lock(self):
         from prometheus.fuse import PrometheusFuse
@@ -164,7 +166,7 @@ class BaseAgent:
         }
         await self.redis.publish("adonis:results", json.dumps(payload))
 
-    async def evaluate_action(self, action_type: str, description: str, payload: dict = None, session_id: str = "") -> tuple[bool, dict]:
+    async def evaluate_action(self, action_type: str, description: str, payload: dict | None = None, session_id: str = "") -> tuple[bool, dict]:
         """
         Gate any risky operation through Prometheus Fuse.
         Returns (approved, safe_payload_to_use)
@@ -296,7 +298,9 @@ class BaseAgent:
                 # Fact extraction — fire-and-forget so it never slows responses.
                 fg = getattr(self.governor, "fact_graph", None)
                 if fg and hint:
-                    asyncio.create_task(self._extract_and_upsert(fg, task, result, session_id, trace_id))
+                    t = asyncio.create_task(self._extract_and_upsert(fg, task, result, session_id, trace_id))
+                    self._background_tasks.add(t)
+                    t.add_done_callback(self._background_tasks.discard)
         except Exception as e:
             log.warning(f"[{self.NAME.upper()}] outcome record failed: {e}")
 

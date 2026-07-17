@@ -4,7 +4,6 @@ tests/test_data_agent.py
 DATA agent: deterministic CSV/JSON profiling + aggregate inference. The LLM
 interpretation layer is exercised separately via a fake.
 """
-import pytest
 
 from openclaw.agents.data import DataAgent
 from persona.soul_layer import PersonaLayer

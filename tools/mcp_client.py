@@ -25,7 +25,6 @@ import json
 import logging
 import os
 import shlex
-import sys
 from dataclasses import dataclass
 from typing import Any
 
@@ -42,6 +41,11 @@ class MCPServer:
     proc:    asyncio.subprocess.Process | None = None
     next_id: int = 0
     pending: dict | None = None
+    # asyncio only holds a *weak* reference to a task — without this, the
+    # reader task can be garbage-collected mid-flight, silently killing the
+    # connection (every subsequent _rpc() call would then hang until its
+    # 30s timeout with no obvious cause). See asyncio.create_task() docs.
+    _reader_task: asyncio.Task | None = None
 
     async def start(self) -> None:
         # Containment: never hand the parent's full environment (secrets!) to a
@@ -57,17 +61,18 @@ class MCPServer:
         env = build_subprocess_env(self.env)
         command = wrap_command(self.command)
         preexec = resource_limiter()
-        extra = {"preexec_fn": preexec} if preexec is not None else {}
         self.proc = await asyncio.create_subprocess_exec(
             *command,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
-            **extra,
+            preexec_fn=preexec,
         )
         self.pending = {}
-        asyncio.create_task(self._read_loop(), name=f"mcp:{self.name}:reader")
+        self._reader_task = asyncio.create_task(
+            self._read_loop(), name=f"mcp:{self.name}:reader"
+        )
         await self._rpc("initialize", {
             "protocolVersion": "2024-11-05",
             "capabilities": {},
@@ -116,6 +121,8 @@ class MCPServer:
         return await self._rpc("tools/call", {"name": name, "arguments": args})
 
     async def stop(self) -> None:
+        if self._reader_task:
+            self._reader_task.cancel()
         if not self.proc: return
         try:
             self.proc.terminate()

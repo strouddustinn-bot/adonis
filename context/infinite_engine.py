@@ -12,10 +12,10 @@ Tier waterfall:
 Overflow cascades down. Retrieval always searches up from L3 → L0.
 Effective context: near-unlimited at minimal token cost.
 """
-import os, json, logging, time
+import json
+import logging
+import time
 from dataclasses import dataclass, field
-from typing import Optional
-import asyncio
 from compression.quantum_compress import QuantumCompressor, CompressionLevel
 
 log = logging.getLogger("infinite_ctx")
@@ -121,7 +121,7 @@ class InfiniteContextEngine:
         messages.append({"role": "user", "content": new_message})
         return messages
 
-    async def distil_to_l3(self, session_id: str, text: str, metadata: dict = None):
+    async def distil_to_l3(self, session_id: str, text: str, metadata: dict | None = None):
         """Permanently store knowledge in semantic vault (ChromaDB + Obsidian)."""
         if self.chroma:
             payload = await self.qc.compress(text, CompressionLevel.STANDARD)
@@ -135,7 +135,8 @@ class InfiniteContextEngine:
             try:
                 existing = await self.obs.read_note(f"MEMORY/semantic/{date}.md") or ""
                 await self.obs.write_note(f"MEMORY/semantic/{date}.md", existing + f"\n---\n{text[:500]}\n")
-            except: pass
+            except Exception:
+                pass
 
     # ── Internal tier ops ────────────────────────────────────────────────────
 

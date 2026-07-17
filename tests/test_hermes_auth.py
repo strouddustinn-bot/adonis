@@ -4,7 +4,6 @@ tests/test_hermes_auth.py
 Hermes bearer-token middleware: off by default, enforced when HERMES_API_KEY
 is set, /health always open.
 """
-import pytest
 from fastapi.testclient import TestClient
 
 from hermes.api import build_app

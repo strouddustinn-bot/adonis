@@ -13,7 +13,8 @@ Failure classes:
   TIMEOUT       — exceeded time budget
   PROMETHEUS    — blocked by ethical fuse (not patchable by Smith)
 """
-import os, json, logging, asyncio
+import json
+import logging
 from typing import Optional
 
 from openclaw.base_agent import BaseAgent

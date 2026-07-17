@@ -9,7 +9,6 @@ Task shapes:
   {type:"keyword_scan",content:"<topic>"}
 Atlas-dispatched task (no `type`) is treated as find_leads on `content`.
 """
-import asyncio
 import json
 import logging
 import re
@@ -53,7 +52,8 @@ def _strip(s: str) -> str:
 
 
 def _extract_page_summary(html: str) -> dict:
-    title = _strip((_TITLE_RE.search(html) or [None, ""])[1] if _TITLE_RE.search(html) else "")
+    mt = _TITLE_RE.search(html)
+    title = _strip(mt.group(1)) if mt else ""
     md = _META_DESC_RE.search(html)
     desc = md.group(1) if md else ""
     headings = [_strip(t) for _, t in _H_RE.findall(html)][:10]

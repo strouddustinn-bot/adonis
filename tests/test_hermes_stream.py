@@ -6,7 +6,6 @@ answer, and streams a cache hit as a single delta on the next identical call.
 """
 import json
 
-import pytest
 from fastapi.testclient import TestClient
 
 from glasswing.governor import PreparedCall

@@ -7,7 +7,6 @@ agent's channel, rescheduling as it goes.
 import json
 import time
 
-import pytest
 
 from openclaw.agents.scheduler import SchedulerAgent
 

@@ -21,7 +21,6 @@ from prometheus.fuse import (
     AUDIT_CAP,
     AgentAction,
     FuseLevel,
-    IntentScore,
     PrometheusFuse,
 )
 
@@ -29,6 +28,30 @@ from prometheus.fuse import (
 # ── helpers ──────────────────────────────────────────────────────────────────
 def _fuse(fake_redis, fake_llm):
     return PrometheusFuse(fake_llm, fake_redis)
+
+
+# Every axis caps at 10 (see IntentScore._bump_axis), so a description has to
+# spread across axes — not just stack synonyms on one axis — to reach RED/
+# BLACK. These two are pinned to totals safely outside the 15-45 LLM
+# re-scoring band, so they're deterministic under the default fake_llm
+# fixture (which returns "{}" -> an all-zero override if triggered).
+#   harm(kill+malware+exploit->10) + deception(phish+fraud+spoof->10) +
+#   data_exfil(exfil+steal+dump database->10) +
+#   legal(illegal+wiretap+unauthorized access->10) + cascade(self-replicate->8)
+#   = 48 total, RED (41-55), no LLM call (48 > 45).
+RED_NOT_BLACK_DESC = (
+    "kill malware exploit phish fraud spoof exfil steal dump database "
+    "wiretap unauthorized access self-replicate"
+)
+#   ...+ password(data_exfil, already capped) + illegal(legal, already capped)
+#   + bypass prometheus(autonomy->10) = 58 total, BLACK (>=56), no LLM call.
+GUARANTEED_BLACK_DESC = (
+    "kill malware exploit phish fraud steal password illegal wiretap "
+    "bypass prometheus self-replicate"
+)
+# password(data_exfil=5) + illegal(legal_exposure=6) = 11 total, YELLOW
+# (11-25), safely below the 15-45 LLM re-scoring band.
+GUARANTEED_YELLOW_DESC = "store the password, which is illegal to share"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -256,6 +279,21 @@ class TestObfuscation:
         else:
             pytest.fail("VULNERABILITY: 'k1ll' (leet speak) bypasses 'kill' detection")
 
+    async def test_letter_spelled_out_across_tokens(self, fake_redis, fake_llm):
+        """Each letter of the keyword is its own whitespace-separated token
+        ('k i l l') — a stray adjacent-pair fusion catches a single dropped
+        separator, but not a full letter-by-letter split."""
+        fuse = _fuse(fake_redis, fake_llm)
+        action = AgentAction("rogue", "act", "k i l l the process")
+        s = fuse._heuristic(action)
+        if s.harm_potential > 0:
+            pytest.skip("Fuse detected letter-spelled-out obfuscation")
+        else:
+            pytest.fail(
+                "VULNERABILITY: 'k i l l' (spelled out one letter per token) "
+                "bypasses 'kill' detection"
+            )
+
     async def test_hyphenated_keyword(self, fake_redis, fake_llm):
         fuse = _fuse(fake_redis, fake_llm)
         action = AgentAction("rogue", "act", "self replicate across hosts")
@@ -279,32 +317,23 @@ class TestScoreBoundaryGaming:
 
     async def test_score_exactly_55_is_red_not_black(self, fake_redis, fake_llm):
         fuse = _fuse(fake_redis, fake_llm)
-        # Craft an action that scores exactly 55 (RED, not BLACK)
-        # kill(9) + malware(9) + exploit(6) + phish(9) + fraud(8) + exfil(9) = 50
-        # + unauthorized access(8) = 58 → BLACK. Need to be more precise.
-        # kill(9) + malware(9) + exploit(6) + phish(9) + fraud(8) + steal(8) = 49
-        # + password(5) = 54 → RED. Good.
-        action = AgentAction(
-            "rogue",
-            "act",
-            "kill malware exploit phish fraud steal password",
-        )
+        # Each axis caps at 10 (see IntentScore._bump_axis), so stacking
+        # synonyms on one axis can't reach RED/BLACK on its own — the
+        # signals have to spread across axes. See RED_NOT_BLACK_DESC's
+        # comment for the per-axis breakdown (totals 48).
+        action = AgentAction("rogue", "act", RED_NOT_BLACK_DESC)
         s = fuse._heuristic(action)
         # Verify it's RED (41-55), not BLACK (56+)
         assert s.level is FuseLevel.RED, (
             f"Expected RED at score {s.total}, got {s.level}"
         )
-        assert s.total <= 55
+        assert 41 <= s.total <= 55
 
     async def test_score_56_is_black(self, fake_redis, fake_llm):
         fuse = _fuse(fake_redis, fake_llm)
-        # kill(9) + malware(9) + exploit(6) + phish(9) + fraud(8) + steal(8)
-        # + wiretap(9) = 58 → BLACK
-        action = AgentAction(
-            "rogue",
-            "act",
-            "kill malware exploit phish fraud steal wiretap",
-        )
+        # See GUARANTEED_BLACK_DESC's comment for the per-axis breakdown
+        # (totals 58, spread across all six axes).
+        action = AgentAction("rogue", "act", GUARANTEED_BLACK_DESC)
         s = fuse._heuristic(action)
         assert s.level is FuseLevel.BLACK
         assert s.total >= 56
@@ -504,7 +533,7 @@ class TestPerformanceConcurrency:
         """100 concurrent fuse evaluations."""
         fuse = _fuse(fake_redis, fake_llm)
         actions = [
-            AgentAction(f"agent_{i}", "act", f"action {i} with kill and malware")
+            AgentAction(f"agent_{i}", "act", GUARANTEED_BLACK_DESC)
             for i in range(100)
         ]
 
@@ -513,7 +542,8 @@ class TestPerformanceConcurrency:
         elapsed = time.perf_counter() - start
 
         assert len(results) == 100
-        # All should be BLACK (kill + malware = 18 harm, plus other axes)
+        # All should be BLACK (signals spread across all six axes, see
+        # GUARANTEED_BLACK_DESC)
         for r in results:
             assert r.level is FuseLevel.BLACK
         # Should complete in reasonable time
@@ -546,7 +576,8 @@ class TestPerformanceConcurrency:
         """100 concurrent YELLOW evaluations (audit writes, no LLM)."""
         fuse = _fuse(fake_redis, fake_llm)
         actions = [
-            AgentAction(f"agent_{i}", "act", "store the password") for i in range(100)
+            AgentAction(f"agent_{i}", "act", GUARANTEED_YELLOW_DESC)
+            for i in range(100)
         ]
 
         start = time.perf_counter()
@@ -568,11 +599,10 @@ class TestPerformanceConcurrency:
             AgentAction("a", "draft", "write about flowers") for _ in range(n)
         ]
         yellow_actions = [
-            AgentAction("a", "act", "store the password") for _ in range(n)
+            AgentAction("a", "act", GUARANTEED_YELLOW_DESC) for _ in range(n)
         ]
         black_actions = [
-            AgentAction("a", "act", "kill malware exploit phish fraud steal wiretap")
-            for _ in range(n)
+            AgentAction("a", "act", GUARANTEED_BLACK_DESC) for _ in range(n)
         ]
 
         times = {}
@@ -607,7 +637,7 @@ class TestAuditLogAttacks:
 
         # Generate 1500 YELLOW-level actions (more than AUDIT_CAP)
         for i in range(1500):
-            await fuse.evaluate(AgentAction(f"agent_{i}", "act", "store the password"))
+            await fuse.evaluate(AgentAction(f"agent_{i}", "act", GUARANTEED_YELLOW_DESC))
 
         # Audit log should be capped at AUDIT_CAP
         length = await fake_redis.llen("prometheus:audit")
@@ -619,7 +649,9 @@ class TestAuditLogAttacks:
         """Audit entries with very large reason strings."""
         fuse = _fuse(fake_redis, fake_llm)
         # Create an action with a huge description that will end up in audit
-        huge_desc = "password " + "x" * 100_000
+        # (needs a second axis alongside "password" to clear GREEN -> YELLOW;
+        # see GUARANTEED_YELLOW_DESC)
+        huge_desc = "password illegal " + "x" * 100_000
         action = AgentAction("rogue", "act", huge_desc)
 
         dec = await fuse.evaluate(action)
@@ -656,7 +688,7 @@ class TestAuditLogAttacks:
     async def test_audit_log_contains_expected_fields(self, fake_redis, fake_llm):
         """Verify audit log entries have all required fields."""
         fuse = _fuse(fake_redis, fake_llm)
-        await fuse.evaluate(AgentAction("scout", "act", "store the password"))
+        await fuse.evaluate(AgentAction("scout", "act", GUARANTEED_YELLOW_DESC))
 
         entries = await fake_redis.lrange("prometheus:audit", 0, 0)
         record = json.loads(entries[0])
@@ -683,7 +715,7 @@ class TestAuditLogAttacks:
 
         # 5 YELLOW (audit)
         for i in range(5):
-            await fuse.evaluate(AgentAction("mid", "act", "store the password"))
+            await fuse.evaluate(AgentAction("mid", "act", GUARANTEED_YELLOW_DESC))
 
         length = await fake_redis.llen("prometheus:audit")
         assert length == 5, f"Only YELLOW+ should be audited; expected 5, got {length}"
@@ -743,7 +775,7 @@ class TestResourceExhaustion:
             f"current={current / 1024:.1f}KB, peak={peak / 1024:.1f}KB"
         )
 
-    async def test_llm_call_frequency_yellow_range(self, fake_redis):
+    async def test_llm_call_frequency_yellow_range(self, fake_redis, fake_llm):
         """Verify LLM is called for actions in the 15-45 score range."""
 
         call_count = 0
@@ -763,7 +795,7 @@ class TestResourceExhaustion:
             f"LLM should be called once for ambiguous score, was called {call_count} times"
         )
 
-    async def test_llm_not_called_for_green(self, fake_redis):
+    async def test_llm_not_called_for_green(self, fake_redis, fake_llm):
         """LLM should NOT be called for clearly GREEN actions."""
         call_count = 0
         original_create = fake_llm.messages.create
@@ -779,7 +811,7 @@ class TestResourceExhaustion:
         await fuse.evaluate(AgentAction("agent", "draft", "write about flowers"))
         assert call_count == 0, "LLM should not be called for GREEN actions"
 
-    async def test_llm_not_called_for_black(self, fake_redis):
+    async def test_llm_not_called_for_black(self, fake_redis, fake_llm):
         """LLM should NOT be called for clearly BLACK actions (score > 45)."""
         call_count = 0
         original_create = fake_llm.messages.create
@@ -792,18 +824,12 @@ class TestResourceExhaustion:
         fake_llm.messages.create = counting_create
         fuse = PrometheusFuse(fake_llm, fake_redis)
 
-        await fuse.evaluate(
-            AgentAction(
-                "rogue",
-                "act",
-                "kill malware exploit phish fraud steal wiretap bypass prometheus",
-            )
-        )
+        await fuse.evaluate(AgentAction("rogue", "act", GUARANTEED_BLACK_DESC))
         assert call_count == 0, (
             "LLM should not be called for BLACK actions (score > 45)"
         )
 
-    async def test_llm_called_for_red_remediation(self, fake_redis):
+    async def test_llm_called_for_red_remediation(self, fake_redis, fake_llm):
         """RED actions should trigger LLM remediation call."""
         call_count = 0
         original_create = fake_llm.messages.create
@@ -837,11 +863,7 @@ class TestResourceExhaustion:
         # Lock 500 agents
         for i in range(500):
             await fuse.evaluate(
-                AgentAction(
-                    f"rogue_{i}",
-                    "act",
-                    "kill malware exploit phish fraud steal wiretap bypass prometheus",
-                )
+                AgentAction(f"rogue_{i}", "act", GUARANTEED_BLACK_DESC)
             )
 
         # Verify all are locked
@@ -860,13 +882,7 @@ class TestResourceExhaustion:
         This is a potential resource exhaustion vector."""
         fuse = _fuse(fake_redis, fake_llm)
 
-        await fuse.evaluate(
-            AgentAction(
-                "rogue",
-                "act",
-                "kill malware exploit phish fraud steal wiretap bypass prometheus",
-            )
-        )
+        await fuse.evaluate(AgentAction("rogue", "act", GUARANTEED_BLACK_DESC))
 
         # The lock key exists
         locked = await PrometheusFuse.is_locked(fake_redis, "rogue")
@@ -886,6 +902,24 @@ class TestResourceExhaustion:
 
 class TestEdgeCases:
     """Additional edge cases discovered during stress testing."""
+
+    @pytest.mark.parametrize(
+        "benign",
+        [
+            "sick illness",
+            "he said id go ok",
+            "a an id ok go",
+            "ok i'll be there",
+        ],
+    )
+    async def test_short_word_sequences_stay_green(self, fake_redis, fake_llm, benign):
+        """The obfuscation-candidate fusion in _heuristic deliberately fuses
+        runs of short (<=2 char) tokens to catch letter-spelled-out attacks
+        ('k i l l'). Guard against that fusion becoming aggressive enough to
+        flag ordinary short-word English."""
+        fuse = _fuse(fake_redis, fake_llm)
+        s = fuse._heuristic(AgentAction("agent", "act", benign))
+        assert s.total == 0, f"{benign!r} unexpectedly scored {s.total}"
 
     async def test_empty_description(self, fake_redis, fake_llm):
         fuse = _fuse(fake_redis, fake_llm)
@@ -914,7 +948,7 @@ class TestEdgeCases:
     async def test_very_long_agent_name(self, fake_redis, fake_llm):
         fuse = _fuse(fake_redis, fake_llm)
         long_name = "a" * 10_000
-        action = AgentAction(long_name, "act", "kill process")
+        action = AgentAction(long_name, "act", GUARANTEED_BLACK_DESC)
         dec = await fuse.evaluate(action)
         assert dec.level is FuseLevel.BLACK
         # Agent should be locked
@@ -948,7 +982,7 @@ class TestEdgeCases:
         fuse = _fuse(fake_redis, fake_llm)
 
         for i in range(10):
-            await fuse.evaluate(AgentAction("agent", "act", "store the password"))
+            await fuse.evaluate(AgentAction("agent", "act", GUARANTEED_YELLOW_DESC))
 
         length = await fake_redis.llen("prometheus:audit")
         assert length == 10

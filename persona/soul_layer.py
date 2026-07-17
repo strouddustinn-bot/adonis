@@ -9,7 +9,8 @@ Maintains consistent Adonis identity regardless of the underlying model backend.
 Adapter hints adjust phrasing per model family for maximum fidelity.
 Soul document is hash-protected — MIRROR cannot modify it without operator approval.
 """
-import os, hashlib, logging
+import hashlib
+import logging
 from enum import Enum
 
 log = logging.getLogger("soul")

@@ -4,9 +4,10 @@ observability/analyzer.py
 ======================
 Adonis Trace Analyzer: Replay engine, Drift detection, and Automated Root-Cause Analysis.
 """
-import json, logging, asyncio, time
-from typing import Any, Dict, List, Tuple, Optional
-from observability.tracer import get_tracer
+import json
+import logging
+import time
+from typing import Any, Dict, List
 
 log = logging.getLogger("analyzer")
 

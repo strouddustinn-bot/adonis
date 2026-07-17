@@ -39,7 +39,7 @@ can evolve without breaking deployed agents.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Type, Optional
 
 from pydantic import BaseModel, ConfigDict, ValidationError

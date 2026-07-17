@@ -5,9 +5,10 @@ routing/planner.py
 Hierarchical Planner with Subgoal Verification Checkpoints.
 Prevents error compounding in long-running tasks by enforcing intermediate validation.
 """
-import asyncio, json, logging, time
+import json
+import logging
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Callable
 from enum import Enum
 
 log = logging.getLogger("planner")
@@ -82,7 +83,7 @@ class HierarchicalPlanner:
             if "YES" in text: return VerificationStatus.PASSED, 1.0
             if "NO" in text: return VerificationStatus.FAILED, 1.0
             return VerificationStatus.AMBIGUOUS, 0.5
-        except:
+        except Exception:
             return VerificationStatus.AMBIGUOUS, 0.0
 
     async def execute_with_checkpoints(self, plan: Plan, executor_fn: Callable):
@@ -150,5 +151,5 @@ class HierarchicalPlanner:
             )
             # In a real system, we would pass this revised instruction back to the executor_fn
             return f"RECOVERY_ACTION: {resp.content[0].text.strip()}"
-        except:
+        except Exception:
             return None

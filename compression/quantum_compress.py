@@ -12,10 +12,12 @@ Multi-stage pipeline:
 One stored atom expands to 20 tokens (ultra) or 200 tokens (full) on demand.
 All results Redis-cached with configurable TTL to avoid re-processing.
 """
-import os, json, hashlib, logging, re
+import json
+import hashlib
+import logging
+import re
 from enum import Enum
 from dataclasses import dataclass, field
-from typing import Optional
 import asyncio
 
 log = logging.getLogger("quantum_compress")
@@ -145,6 +147,6 @@ Text: {text[:2000]}"""
                 model="claude-haiku-4-5-20251001", max_tokens=60,
                 messages=[{"role":"user","content":f"Summarise in one dense sentence (max 20 words): {text[:1000]}"}])
             return r.content[0].text.strip()
-        except:
+        except Exception:
             words = text.split()
             return " ".join(words[:20]) + ("..." if len(words)>20 else "")

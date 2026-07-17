@@ -5,7 +5,6 @@ Mirror's self-rewrite loop: adoption is opt-in (MIRROR_AUTOWRITE), always
 fuse-gated, persisted to a reversible runtime override store, and actually
 consumed by base_agent.llm_call. Rollback clears it.
 """
-import pytest
 
 from openclaw.agents.mirror import MirrorAgent
 from openclaw.agents.forge import ForgeAgent
