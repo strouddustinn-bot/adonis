@@ -324,14 +324,27 @@ def _which(prog: str) -> str | None:
 
 
 def _run(cmd: list[str], check: bool = False, stream: bool = False) -> tuple[int, str, str]:
-    if stream:
-        rc = subprocess.call(cmd, cwd=str(ROOT))
-        return rc, "", ""
-    p = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True)
-    if check and p.returncode != 0:
-        fail(f"command failed: {' '.join(cmd)}\n{p.stderr}")
-        sys.exit(p.returncode)
-    return p.returncode, p.stdout, p.stderr
+    command = tuple(cmd)
+    allowed = {
+        ("which", "docker"), ("which", "docker-compose"),
+        ("docker", "info"), ("docker", "compose", "version"),
+        ("docker", "compose", "up", "-d"),
+        ("docker", "compose", "up", "-d", "--build"),
+        ("docker", "compose", "down"), ("docker", "compose", "down", "-v"),
+        ("docker-compose", "up", "-d"), ("docker-compose", "up", "-d", "--build"),
+        ("docker-compose", "down"), ("docker-compose", "down", "-v"),
+    }
+    if command not in allowed:
+        raise ValueError("Unsupported command")
+    try:
+        p = subprocess.run(list(command), cwd=str(ROOT), shell=False, check=True,
+                           capture_output=not stream, text=True)
+    except subprocess.CalledProcessError as e:
+        if check and not stream:
+            fail(f"command failed: {' '.join(command)}\n{e.stderr}")
+            sys.exit(e.returncode)
+        return e.returncode, e.stdout or "", e.stderr or ""
+    return p.returncode, p.stdout or "", p.stderr or ""
 
 
 def _port_free(port: int) -> bool:
@@ -451,3 +464,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
