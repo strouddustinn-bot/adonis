@@ -1,0 +1,25 @@
+name: Agent instructions gate
+
+on:
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  agent-instructions-presence:
+    name: Agent instructions presence
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check out proposed repository contents
+        uses: actions/checkout@v4
+      - name: Require nonempty root AGENTS.md
+        shell: bash
+        run: |
+          if [[ ! -s AGENTS.md ]]; then
+            echo "::error file=AGENTS.md::A nonempty root AGENTS.md is required."
+            exit 1
+          fi
+          echo "Root AGENTS.md exists and is nonempty."
